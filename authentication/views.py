@@ -458,8 +458,8 @@ class GoogleLoginView(APIView):
         except ValueError as e:
             return Response({'error': f'Invalid token: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            # print(e)
-            return Response({'error': 'Authentication failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Google Auth Error: {str(e)}")
+            return Response({'error': f'Authentication failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class CompleteProfileView(APIView):
