@@ -18,8 +18,10 @@ from .email_service import send_otp_email, send_welcome_email
 from authentication.models import OTP
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
+import logging
 from users.notifications import notify_admin_new_registration
 
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -406,6 +408,8 @@ class GoogleLoginView(APIView):
             first_name = id_info.get('given_name', '')
             last_name = id_info.get('family_name', '')
             
+            full_name = f"{first_name} {last_name}".strip()
+            
             if not email:
                 return Response({'error': 'Email not found in token'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -413,8 +417,7 @@ class GoogleLoginView(APIView):
             user, created = User.objects.get_or_create(
                 email=email,
                 defaults={
-                    'first_name': first_name,
-                    'last_name': last_name,
+                    'full_name': full_name,
                     'is_active': True,  # Google users are verified by default
                     'user_type': 'general',  # Temporary default, will be updated in onboarding
                 }
