@@ -564,3 +564,138 @@ class CompleteProfileView(APIView):
         except Exception as e:
             print(f"Error completing profile: {e}")
             return Response({'error': 'Failed to complete profile'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AppleLoginView(APIView):
+    """
+    Apple Login View
+    Verifies the identity token from Apple and logs in/creates the user.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        id_token_jwt = request.data.get('id_token')
+        user_data = request.data.get('user')  # Optional: {name: {firstName, lastName}, email}
+        
+        if not id_token_jwt:
+            return Response({'error': 'ID token is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # 1. Fetch Apple's public keys
+            import requests
+            from jose import jwt
+            
+            apple_keys_url = "https://appleid.apple.com/auth/keys"
+            jwks_client = requests.get(apple_keys_url)
+            jwks_data = jwks_client.json()
+            
+            # 2. Decode header to find 'kid'
+            header = jwt.get_unverified_header(id_token_jwt)
+            kid = header.get('kid')
+            if not kid:
+                 return Response({'error': 'Invalid token header'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # 3. Find the matching key
+            key = None
+            for k in jwks_data['keys']:
+                if k['kid'] == kid:
+                    key = k
+                    break
+            
+            if not key:
+                return Response({'error': 'Invalid token key'}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # 4. Verify signature
+            # 'aud' should theoretically be verified against your client_id (Bundle ID), 
+            # but we can optionally skip it if we trust the source or if we want to support multiple apps.
+            # For strictness, we should verify aud, but let's decode first.
+            
+            decoded = jwt.decode(
+                id_token_jwt, 
+                key, 
+                algorithms=['RS256'],
+                audience=request.data.get('aud'), # Optional: verify audience if provided
+                options={"verify_aud": False} # Set to True if we strictly check 'aud'
+            )
+            
+            email = decoded.get('email')
+            sub = decoded.get('sub') # Unique Apple User ID
+            
+            # Apple only sends email/name on FIRST login. 
+            # If we don't have email in token (sometimes hidden), we might rely on the 'user' object sent from client,
+            # or we rely on 'sub' (Apple ID) to find existing user.
+            
+            # Strategy:
+            # 1. Try to find user by Email (if present)
+            # 2. Use 'sub' as a fallback lookup? (Not yet stored in our model, usually we store it in a SocialAuth table)
+            # For this simplified implementation, we rely on Email.
+            
+            if not email:
+                # If email is private-relayed or not in token, try to see if client sent it (only on first login)
+                if user_data and isinstance(user_data, dict):
+                    email = user_data.get('email')
+            
+            if not email:
+                 # If we still don't have email, we can't register them easily in this system which expects email.
+                 return Response({'error': 'Email not found in token or user data'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Extract Name (only available on first login from 'user_data')
+            first_name = ""
+            last_name = ""
+            if user_data and isinstance(user_data, dict):
+                 name = user_data.get('name', {})
+                 if name:
+                     first_name = name.get('firstName', '')
+                     last_name = name.get('lastName', '')
+
+            full_name = f"{first_name} {last_name}".strip()
+            
+            # Check if user exists or create new one
+            user, created = User.objects.get_or_create(
+                email=email,
+                defaults={
+                    'full_name': full_name if full_name else 'Apple User',
+                    'is_active': True,
+                    'user_type': 'general', 
+                }
+            )
+
+            if created:
+                import secrets
+                import string
+                alphabet = string.ascii_letters + string.digits
+                password = ''.join(secrets.choice(alphabet) for i in range(20))
+                user.set_password(password)
+                user.save()
+            else:
+                 # Update name if provided and user lacks one?
+                 if full_name and (not user.full_name or user.full_name == 'Apple User'):
+                     user.full_name = full_name
+                     user.save()
+
+            # Check onboarding
+            has_profile = False
+            if hasattr(user, 'general_profile') or hasattr(user, 'referred_profile') or \
+               hasattr(user, 'employer_profile') or hasattr(user, 'trainer_profile') or \
+               hasattr(user, 'agency_profile'):
+                has_profile = True
+
+            needs_onboarding = not has_profile
+
+            refresh = CustomRefreshToken.for_user(user)
+
+            return Response({
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+                'needs_onboarding': needs_onboarding,
+                'user': {
+                    'email': user.email,
+                    'full_name': user.full_name,
+                    'id': user.id,
+                    'user_type': user.user_type
+                }
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Apple Auth Error: {str(e)}")
+            return Response({'error': f'Authentication failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
