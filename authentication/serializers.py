@@ -73,10 +73,12 @@ class AgencySerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     data = serializers.JSONField(write_only=True)
     class Meta:
+    class Meta:
         model = User
         fields = ["full_name", "email", "user_type", "password", "data"]
         extra_kwargs = {
-            "password": {"write_only": True}
+            "password": {"write_only": True},
+            "email": {"validators": []} # CRITICAL: Disable default UniqueValidator so we can handle inactive users manually
         }
 
     def validate(self, attrs):
