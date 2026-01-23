@@ -35,9 +35,10 @@ class RegisterView(generics.CreateAPIView):
         user = serializer.save()
         
         # Check for pending agency cases
-from agency.models import AgencyCaseLoad
-from users.models import ReferredUser, CaseAssignment, GeneralUser
-            
+        from agency.models import AgencyCaseLoad
+        from users.models import ReferredUser, CaseAssignment, GeneralUser
+        
+        try:
             pending_cases = AgencyCaseLoad.objects.filter(email=user.email, is_registered=False)
             
             for pending_case in pending_cases:
