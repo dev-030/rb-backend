@@ -79,18 +79,53 @@ class RegisterSerializer(serializers.ModelSerializer):
             "password": {"write_only": True}
         }
 
+    def validate(self, attrs):
+        email = attrs.get('email')
+        if email:
+            try:
+                user = User.objects.get(email=email)
+                if user.is_active:
+                    raise serializers.ValidationError({"email": "User with this email already exists."})
+                # If user exists but is not active, we let them proceed to create()
+                # where we will update their existing record.
+            except User.DoesNotExist:
+                pass
+        return attrs
+
     def create(self, validated_data):
         user_type = validated_data['user_type']
+        email = validated_data['email']
 
         try:
             with transaction.atomic():
-
-                user = User.objects.create_user(
-                    full_name = validated_data['full_name'],
-                    email = validated_data['email'],
-                    password = validated_data['password'],
-                    user_type = validated_data['user_type']
-                )
+                
+                # Check for existing inactive user to recycle
+                user = User.objects.filter(email=email).first()
+                
+                if user and not user.is_active:
+                    # Update existing inactive user
+                    user.full_name = validated_data['full_name']
+                    user.set_password(validated_data['password'])
+                    user.user_type = user_type
+                    user.save()
+                    
+                    # Remove potential old profiles to avoid OneToOne conflicts during new profile creation
+                    if hasattr(user, 'general_profile'): user.general_profile.delete()
+                    if hasattr(user, 'referred_profile'): user.referred_profile.delete()
+                    if hasattr(user, 'employer_profile'): user.employer_profile.delete()
+                    if hasattr(user, 'trainer_profile'): user.trainer_profile.delete()
+                    if hasattr(user, 'agency_profile'): 
+                        # Clean up old agency documents if needed? 
+                        # Usually documents are just files, but the profile has the links.
+                        user.agency_profile.delete()
+                else:
+                    # Create new user
+                    user = User.objects.create_user(
+                        full_name = validated_data['full_name'],
+                        email = validated_data['email'],
+                        password = validated_data['password'],
+                        user_type = validated_data['user_type']
+                    )
                 
                 if user_type == "agency":
                     from core.utils import move_cloudinary_document
