@@ -418,6 +418,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 }
             return None
         except:
+            return None
+
     def get_needs_onboarding(self, obj):
         """Check if user needs to complete onboarding"""
         has_profile = False
