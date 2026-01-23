@@ -1,14 +1,27 @@
 """Email service for sending OTP and other notifications"""
 
+import threading
 from django.core.mail import send_mail
 from django.conf import settings
 from core.utils import generate_otp
 from authentication.models import OTP
 
+def send_email_thread(subject, message, from_email, recipient_list, fail_silently=False):
+    """Execute send_mail in a separate thread to avoid blocking response"""
+    try:
+        send_mail(
+            subject,
+            message,
+            from_email,
+            recipient_list,
+            fail_silently=fail_silently,
+        )
+    except Exception as e:
+        print(f"Error sending email in thread: {e}")
 
 def send_otp_email(user):
     """
-    Generate and send OTP to user email
+    Generate and send OTP to user email (Async)
     Returns the OTP instance
     """
     # Generate OTP
@@ -35,19 +48,18 @@ def send_otp_email(user):
     Neworkx Team
     '''
     
-    send_mail(
-        subject,
-        message,
-        settings.DEFAULT_FROM_EMAIL,
-        [user.email],
-        fail_silently=False,
-    )
+    # Send in background thread
+    threading.Thread(
+        target=send_email_thread,
+        args=(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email]),
+        kwargs={'fail_silently': False}
+    ).start()
     
     return otp_instance
 
 
 def send_password_reset_email(user, reset_link):
-    """Send password reset email to user"""
+    """Send password reset email to user (Async)"""
     
     subject = 'Neworkx - Password Reset Request'
     message = f'''
@@ -65,17 +77,15 @@ def send_password_reset_email(user, reset_link):
     Neworkx Team
     '''
     
-    send_mail(
-        subject,
-        message,
-        settings.DEFAULT_FROM_EMAIL,
-        [user.email],
-        fail_silently=False,
-    )
+    threading.Thread(
+        target=send_email_thread,
+        args=(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email]),
+        kwargs={'fail_silently': False}
+    ).start()
 
 
 def send_payment_receipt_email(user, payment):
-    """Send payment confirmation email"""
+    """Send payment confirmation email (Async)"""
     
     subject = 'Neworkx - Payment Receipt'
     message = f'''
@@ -94,17 +104,15 @@ def send_payment_receipt_email(user, payment):
     Neworkx Team
     '''
     
-    send_mail(
-        subject,
-        message,
-        settings.DEFAULT_FROM_EMAIL,
-        [user.email],
-        fail_silently=False,
-    )
+    threading.Thread(
+        target=send_email_thread,
+        args=(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email]),
+        kwargs={'fail_silently': False}
+    ).start()
 
 
 def send_welcome_email(user):
-    """Send welcome email after successful registration"""
+    """Send welcome email after successful registration (Async)"""
     
     subject = 'Welcome to Neworkx!'
     message = f'''
@@ -124,13 +132,11 @@ def send_welcome_email(user):
     The Neworkx Team
     '''
     
-    send_mail(
-        subject,
-        message,
-        settings.DEFAULT_FROM_EMAIL,
-        [user.email],
-        fail_silently=False,
-    )
+    threading.Thread(
+        target=send_email_thread,
+        args=(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email]),
+        kwargs={'fail_silently': False}
+    ).start()
 
 
 def send_interview_invitation_email(applicant, job, employer, interview):
@@ -177,13 +183,11 @@ def send_interview_invitation_email(applicant, job, employer, interview):
     Neworkx Team
     '''
     
-    send_mail(
-        subject,
-        message,
-        settings.DEFAULT_FROM_EMAIL,
-        [applicant.email],
-        fail_silently=False,
-    )
+    threading.Thread(
+        target=send_email_thread,
+        args=(subject, message, settings.DEFAULT_FROM_EMAIL, [applicant.email]),
+        kwargs={'fail_silently': False}
+    ).start()
 
 
 def send_rejection_email(applicant, job, employer):
@@ -209,13 +213,11 @@ def send_rejection_email(applicant, job, employer):
     Neworkx
     '''
     
-    send_mail(
-        subject,
-        message,
-        settings.DEFAULT_FROM_EMAIL,
-        [applicant.email],
-        fail_silently=False,
-    )
+    threading.Thread(
+        target=send_email_thread,
+        args=(subject, message, settings.DEFAULT_FROM_EMAIL, [applicant.email]),
+        kwargs={'fail_silently': False}
+    ).start()
 
 
 def send_hiring_email(applicant, job, employer, hiring_details):
@@ -267,13 +269,11 @@ def send_hiring_email(applicant, job, employer, hiring_details):
     Neworkx
     '''
     
-    send_mail(
-        subject,
-        message,
-        settings.DEFAULT_FROM_EMAIL,
-        [applicant.email],
-        fail_silently=False,
-    )
+    threading.Thread(
+        target=send_email_thread,
+        args=(subject, message, settings.DEFAULT_FROM_EMAIL, [applicant.email]),
+        kwargs={'fail_silently': False}
+    ).start()
 
 
 def send_contact_form_to_admin(contact_message):
@@ -318,10 +318,8 @@ def send_contact_form_to_admin(contact_message):
     # Admin email
     admin_email = 'jamilhossain3251@gmail.com'
     
-    send_mail(
-        subject,
-        message,
-        settings.DEFAULT_FROM_EMAIL,
-        [admin_email],
-        fail_silently=False,
-    )
+    threading.Thread(
+        target=send_email_thread,
+        args=(subject, message, settings.DEFAULT_FROM_EMAIL, [admin_email]),
+        kwargs={'fail_silently': False}
+    ).start()

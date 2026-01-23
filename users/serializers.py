@@ -28,6 +28,10 @@ class JobSerializer(serializers.ModelSerializer):
     
     def get_has_applied(self, obj):
         """Check if the current user has already applied to this job"""
+        # First check if we annotated this in the view (performance optimization)
+        if hasattr(obj, 'has_applied_val'):
+            return obj.has_applied_val
+            
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return JobApplication.objects.filter(
@@ -94,6 +98,10 @@ class TrainingProgramSerializer(serializers.ModelSerializer):
 
     def get_is_enrolled(self, obj):
         """Check if the current user is already enrolled in this program"""
+        # Check for optimized annotation
+        if hasattr(obj, 'is_enrolled_val'):
+            return obj.is_enrolled_val
+            
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return Enrollment.objects.filter(

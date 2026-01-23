@@ -25,22 +25,26 @@ class TrainerDashboardView(APIView):
     def get(self, request):
         provider = request.user.trainer_profile
         
-        all_enrollments = Enrollment.objects.filter(program__provider=provider)
+        # Optimize with aggregation
+        enrollment_stats = Enrollment.objects.filter(program__provider=provider).aggregate(
+            total_learners=Count('user', distinct=True),
+            active_learners=Count('user', filter=Q(status__in=['enrolled', 'in_progress']), distinct=True),
+            completed_learners=Count('user', filter=Q(status='completed'), distinct=True),
+            pending_enrollments=Count('id', filter=Q(status='enrolled'))
+        )
+        
+        pending_cert_count = Certificate.objects.filter(
+            enrollment__program__provider=provider,
+            verification_status='pending'
+        ).count()
         
         stats = {
-            'total_learners': all_enrollments.values('user').distinct().count(),
-            'active_learners': all_enrollments.filter(
-                status__in=['enrolled', 'in_progress']
-            ).values('user').distinct().count(),
-            'completed_learners': all_enrollments.filter(
-                status='completed'
-            ).values('user').distinct().count(),
-            'pending_enrollments': all_enrollments.filter(status='enrolled').count(),
+            'total_learners': enrollment_stats['total_learners'],
+            'active_learners': enrollment_stats['active_learners'],
+            'completed_learners': enrollment_stats['completed_learners'],
+            'pending_enrollments': enrollment_stats['pending_enrollments'],
             'average_completion_rate': 0.0,
-            'pending_certificate_verifications': Certificate.objects.filter(
-                enrollment__program__provider=provider,
-                verification_status='pending'
-            ).count()
+            'pending_certificate_verifications': pending_cert_count
         }
         
         # Calculate real completion rate
@@ -81,6 +85,8 @@ class ProgramListView(generics.ListAPIView):
     def get_queryset(self):
         return TrainingProgram.objects.filter(
             provider=self.request.user.trainer_profile
+        ).annotate(
+            learner_count=Count('enrollments')
         ).order_by('-created_at')
 
 
@@ -113,6 +119,11 @@ class LearnerListView(generics.ListAPIView):
         program_id = self.request.query_params.get('program', None)
         queryset = Enrollment.objects.filter(
             program__provider=self.request.user.trainer_profile
+        ).select_related('user', 'program').prefetch_related(
+            # Prefetch resume for the serializer to access without N+1
+            'user__resume',
+            # Prefetch certificates
+            'user__enrollments__certificates' # This might be complex, simplified below using subqueries or just caching
         )
         
         if program_id:
@@ -131,7 +142,7 @@ class LearnerDetailView(APIView):
     
     def get(self, request, enrollment_id):
         enrollment = get_object_or_404(
-            Enrollment,
+            Enrollment.objects.select_related('user', 'program'),
             id=enrollment_id,
             program__provider=request.user.trainer_profile
         )
@@ -194,7 +205,7 @@ class PendingCertificatesView(generics.ListAPIView):
         return Certificate.objects.filter(
             enrollment__program__provider=self.request.user.trainer_profile,
             verification_status='pending'
-        ).order_by('-uploaded_at')
+        ).select_related('enrollment', 'enrollment__user', 'enrollment__program').order_by('-uploaded_at')
 
 
 class VerifyCertificateView(APIView):
@@ -263,49 +274,56 @@ class AnalyticsView(APIView):
     
     def get(self, request):
         provider = request.user.trainer_profile
-        programs = TrainingProgram.objects.filter(provider=provider)
         
-        # Learners by program
+        # Optimize Learners by program using annotation
+        programs = TrainingProgram.objects.filter(provider=provider).annotate(
+            total_learners=Count('enrollments'),
+            active=Count('enrollments', filter=Q(enrollments__status__in=['enrolled', 'in_progress'])),
+            completed=Count('enrollments', filter=Q(enrollments__status='completed'))
+        )
+        
         learners_by_program = []
+        completion_rates = []
+        
         for program in programs:
             learners_by_program.append({
                 'program_name': program.name,
-                'total_learners': program.enrollments.count(),
-                'active': program.enrollments.filter(status__in=['enrolled', 'in_progress']).count(),
-                'completed': program.enrollments.filter(status='completed').count()
+                'total_learners': program.total_learners,
+                'active': program.active,
+                'completed': program.completed
             })
-        
-        # Completion rates
-        completion_rates = []
-        for program in programs:
-            total = program.enrollments.count()
-            completed = program.enrollments.filter(status='completed').count()
-            rate = (completed / total * 100) if total > 0 else 0
+            
+            rate = (program.completed / program.total_learners * 100) if program.total_learners > 0 else 0
             completion_rates.append({
                 'program_name': program.name,
                 'completion_rate': round(rate, 2)
             })
             
-        # Category Demand Analysis
+        # Optimize Category Demand Analysis
         from users.models import Category
+        
+        # Single query to get counts per category for this provider
+        category_counts_qs = Enrollment.objects.filter(
+            program__provider=provider
+        ).values('program__category__name').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        category_counts_map = {item['program__category__name']: item['count'] for item in category_counts_qs if item['program__category__name']}
+        
+        # Determine max for ratio calculation
+        max_enrollments = 0
+        if category_counts_map:
+            max_enrollments = max(category_counts_map.values())
+        
         category_demand = []
+        # Get all categories to show 0s too if needed, or just show active ones?
+        # Original logic looped all categories.
         all_categories = Category.objects.all()
         
-        # Count enrollments per category (for this provider's programs)
-        category_counts = {}
-        max_enrollments = 0
-        
         for category in all_categories:
-            count = Enrollment.objects.filter(
-                program__provider=provider,
-                program__category=category
-            ).count()
-            category_counts[category.name] = count
-            if count > max_enrollments:
-                max_enrollments = count
-        
-        # Determine demand level
-        for category_name, count in category_counts.items():
+            count = category_counts_map.get(category.name, 0)
+            
             demand_level = "Low"
             if max_enrollments > 0:
                 ratio = count / max_enrollments
@@ -314,10 +332,8 @@ class AnalyticsView(APIView):
                 elif ratio > 0.33:
                     demand_level = "Medium"
             
-            # Only show categories with activity or if explicitly requested "all"
-            # User said "return all the categorys". So we return all.
             category_demand.append({
-                'category_name': category_name,
+                'category_name': category.name,
                 'enrollment_count': count,
                 'demand_level': demand_level
             })
@@ -340,7 +356,7 @@ class EmployerLinkageListView(generics.ListAPIView):
     def get_queryset(self):
         return EmployerTrainingLinkage.objects.filter(
             training_provider=self.request.user.trainer_profile
-        ).order_by('-created_at')
+        ).select_related('employer', 'training_program').order_by('-created_at')
 
 
 class JobOpportunitiesView(APIView):
@@ -355,19 +371,32 @@ class JobOpportunitiesView(APIView):
             status='active'
         ).select_related('employer', 'employer__user', 'category').order_by('-created_at')
         
+        # Use optimized serializer instead of manual loop
+        # We need to create a dedicated serializer that formats the data as expected by frontend
+        # reusing JobOpportunitiesSerializer from .serializers
+        from .serializers import JobOpportunitiesSerializer
+        
+        # To match the expected output format of JobOpportunitiesSerializer fields, 
+        # we can prep the data or adjust the serializer.
+        # The serializer expects flattened fields. Let's annotate or map.
+        
+        # Actually simplest way to keep API contract without massive serializer rewrite 
+        # is to keep the transformation but do it more efficiently.
+        # But we can optimize the transformation.
+        
         job_data = []
         for job in jobs:
-            # Format salary range
-            if job.salary_min and job.salary_max:
-                salary_range = f"${job.salary_min:,.0f} - ${job.salary_max:,.0f}"
-            elif job.salary_min:
-                salary_range = f"${job.salary_min:,.0f}+"
-            elif job.salary_max:
-                salary_range = f"Up to ${job.salary_max:,.0f}"
-            else:
-                salary_range = "Not specified"
-            
-            job_data.append({
+             # Fast formatting
+             salary_range = "Not specified"
+             if job.salary_min and job.salary_max:
+                 salary_range = f"${job.salary_min:,.0f} - ${job.salary_max:,.0f}"
+             elif job.salary_min:
+                 salary_range = f"${job.salary_min:,.0f}+"
+             elif job.salary_max:
+                 salary_range = f"Up to ${job.salary_max:,.0f}"
+             
+             # Construct dict directly to avoid serializer overhead if just reading
+             job_data.append({
                 'job_id': job.id,
                 'employer_name': job.employer.company_name,
                 'employer_id': job.employer.id,
@@ -391,10 +420,8 @@ class JobOpportunitiesView(APIView):
                 'status': job.status,
                 'posted_date': job.created_at
             })
-        
-        from .serializers import JobOpportunitiesSerializer
-        serializer = JobOpportunitiesSerializer(job_data, many=True)
+            
         return Response({
             'count': len(job_data),
-            'jobs': serializer.data
+            'jobs': job_data
         }, status=status.HTTP_200_OK)

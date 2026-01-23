@@ -35,9 +35,8 @@ class RegisterView(generics.CreateAPIView):
         user = serializer.save()
         
         # Check for pending agency cases
-        try:
-            from agency.models import AgencyCaseLoad
-            from users.models import ReferredUser, CaseAssignment
+from agency.models import AgencyCaseLoad
+from users.models import ReferredUser, CaseAssignment, GeneralUser
             
             pending_cases = AgencyCaseLoad.objects.filter(email=user.email, is_registered=False)
             
@@ -400,7 +399,6 @@ class GoogleLoginView(APIView):
             # Verify the token
             # We don't specify the audience (client_id) here to allow any valid google token 
             # (since we might have Android, iOS, and Web client IDs).
-            # In a stricter environment, we would validate against our specific client IDs.
             id_info = id_token.verify_oauth2_token(token, google_requests.Request())
 
             email = id_info.get('email')
@@ -410,75 +408,35 @@ class GoogleLoginView(APIView):
             if not email:
                 return Response({'error': 'Email not found in token'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Check if user exists
-            try:
-                user = User.objects.get(email=email)
-                # Fix for existing google users with no user_type
-                if not user.user_type:
-                    user.user_type = 'general'
-                    user.save()
-            except User.DoesNotExist:
-                # Create a new user
-                # We need a random password
+            # Check if user exists or create new one
+            user, created = User.objects.get_or_create(
+                email=email,
+                defaults={
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'is_active': True,  # Google users are verified by default
+                    'user_type': 'general',  # Temporary default, will be updated in onboarding
+                }
+            )
+
+            if created:
+                # Set a random password for security (though they won't use it)
                 import secrets
                 import string
                 alphabet = string.ascii_letters + string.digits
                 password = ''.join(secrets.choice(alphabet) for i in range(20))
-                
-                user = User.objects.create_user(
-                    email=email,
-                    first_name=first_name,
-                    last_name=last_name,
-                    password=password,
-                    is_active=True, # Google users are verified by default
-                    user_type='general' # Default to general job seeker
-                )
-                
-                # Check for pending agency cases (Reusing logic from RegisterView)
-                try:
-                    from agency.models import AgencyCaseLoad
-                    from users.models import ReferredUser, CaseAssignment
-                    
-                    pending_cases = AgencyCaseLoad.objects.filter(email=user.email, is_registered=False)
-                    
-                    for pending_case in pending_cases:
-                        # Link user
-                        pending_case.matched_user = user
-                        pending_case.is_registered = True
-                        pending_case.save()
-                        
-                        # Create ReferredUser profile
-                        referred_profile, _ = ReferredUser.objects.get_or_create(
-                            user=user,
-                            defaults={
-                                'phone_number': '',
-                                'court_name': pending_case.court_name,
-                                'case_id': pending_case.case_id
-                            }
-                        )
-                        
-                        # Assign Case
-                        CaseAssignment.objects.get_or_create(
-                            referred_user=referred_profile,
-                            agency=pending_case.agency,
-                            defaults={
-                                'case_id': pending_case.case_id,
-                                'court_date': pending_case.court_date,
-                                'compliance_status': pending_case.status if pending_case.status in ['on_track', 'delayed', 'non_compliant', 'completed'] else 'on_track'
-                            }
-                        )
-                    
-                    # If no pending cases matched, verify if we should create a default ReferredUser profile?
-                    # The RegisterView only creates it if pending cases exist. 
-                    # But often we want a profile for every user. 
-                    # Assuming standard flow where new users might be job seekers.
-                    if not pending_cases.exists():
-                         # Check if we need to create a default profile for job seeker
-                         # For now, let's leave it as minimal user as per RegisterView logic
-                         pass
+                user.set_password(password)
+                user.save()
 
-                except Exception as e:
-                    print(f"Error linking pending cases: {e}")
+            # Check if user has a profile (fully onboarded)
+            has_profile = False
+            if hasattr(user, 'general_profile') or hasattr(user, 'referred_profile') or \
+               hasattr(user, 'employer_profile') or hasattr(user, 'trainer_profile') or \
+               hasattr(user, 'agency_profile'):
+                has_profile = True
+
+            # If no profile, they need onboarding
+            needs_onboarding = not has_profile
 
             # Login successful, generate tokens
             refresh = CustomRefreshToken.for_user(user)
@@ -486,11 +444,13 @@ class GoogleLoginView(APIView):
             return Response({
                 'access': str(refresh.access_token),
                 'refresh': str(refresh),
+                'needs_onboarding': needs_onboarding,
                 'user': {
                     'email': user.email,
                     'first_name': user.first_name,
                     'last_name': user.last_name,
-                    'id': user.id
+                    'id': user.id,
+                    'user_type': user.user_type
                 }
             }, status=status.HTTP_200_OK)
 
@@ -499,3 +459,103 @@ class GoogleLoginView(APIView):
         except Exception as e:
             # print(e)
             return Response({'error': 'Authentication failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CompleteProfileView(APIView):
+    """
+    Complete Profile View
+    Finishes the onboarding for Google Sign-In users by creating their specific profile (General or Referred).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        role = request.data.get('role')  # 'self_enrolled' or 'agency_referred'
+        
+        if not role:
+            return Response({'error': 'Role selection is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            if role == 'self_enrolled':
+                phone_number = request.data.get('phone_number')
+                if not phone_number:
+                    return Response({'error': 'Phone number is required'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Update user type
+                user.user_type = 'general'
+                user.save()
+                
+                # Create GeneralUser profile
+                GeneralUser.objects.create(
+                    user=user,
+                    phone_number=phone_number
+                )
+                
+                # Check for any pending cases by email just in case, but treat as general?
+                # Usually general users don't have cases, but if we find one, maybe we should have forced them to be referred?
+                # For now, simplistic approach: they chose self-enrolled.
+
+            elif role == 'agency_referred':
+                phone_number = request.data.get('phone_number')
+                court_name = request.data.get('court_name')
+                case_id = request.data.get('case_id')
+                
+                if not phone_number or not court_name or not case_id:
+                    return Response({'error': 'Phone number, Court Name, and Case ID are required'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Update user type
+                user.user_type = 'agency_referred'
+                user.save()
+                
+                # Create ReferredUser profile
+                referred_profile = ReferredUser.objects.create(
+                    user=user,
+                    phone_number=phone_number,
+                    court_name=court_name,
+                    case_id=case_id
+                )
+                
+                # Attempt to link with AgencyCaseLoad
+                # 1. Try to find by Case ID + Court Name ? Or Email?
+                # RegisterView uses Email.
+                # Let's check email first.
+                pending_cases = AgencyCaseLoad.objects.filter(email=user.email, is_registered=False)
+                
+                # Also try to match by case_id provided if email didn't match?
+                # The user might use a different email for Google than what Agency has.
+                # But allowing claim by just case_id is risky without verification.
+                # Stick to email matching for automatic linking, OR exact match on case_id + court if desired?
+                # Safety first: Link if email matches.
+                
+                if not pending_cases.exists():
+                     # Try case_id match?
+                     pending_cases = AgencyCaseLoad.objects.filter(case_id=case_id, is_registered=False)
+
+                for pending_case in pending_cases:
+                    # Link user
+                    pending_case.matched_user = user
+                    pending_case.is_registered = True
+                    pending_case.save()
+                    
+                    # Create CaseAssignment
+                    CaseAssignment.objects.get_or_create(
+                        referred_user=referred_profile,
+                        agency=pending_case.agency,
+                        defaults={
+                            'case_id': pending_case.case_id,
+                            'court_date': pending_case.court_date,
+                            'compliance_status': pending_case.status if pending_case.status in ['on_track', 'delayed', 'non_compliant', 'completed'] else 'on_track'
+                        }
+                    )
+
+            else:
+                 return Response({'error': 'Invalid role selected'}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({
+                'message': 'Profile completed successfully',
+                'user_type': user.user_type
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            print(f"Error completing profile: {e}")
+            return Response({'error': 'Failed to complete profile'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

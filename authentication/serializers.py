@@ -233,6 +233,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     """Serializer for retrieving and updating user profile information"""
     has_paid = serializers.SerializerMethodField()
     profile_data = serializers.SerializerMethodField()
+    needs_onboarding = serializers.SerializerMethodField()
     profile_pic = Base64OrFileField(required=False, allow_null=True)
     
     # Write-only fields for profile updates
@@ -244,8 +245,8 @@ class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'email', 'full_name', 'user_type', 'profile_pic', 'date_joined', 'has_paid', 'profile_data', 
-                 'phone_number', 'court_name', 'case_id', 'date_of_birth']
-        read_only_fields = ['id', 'email', 'user_type', 'date_joined', 'has_paid', 'profile_data']
+                 'needs_onboarding', 'phone_number', 'court_name', 'case_id', 'date_of_birth']
+        read_only_fields = ['id', 'email', 'user_type', 'date_joined', 'has_paid', 'profile_data', 'needs_onboarding']
     
     def validate_email(self, value):
         """Prevent email from being updated"""
@@ -417,7 +418,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 }
             return None
         except:
-            return None
+    def get_needs_onboarding(self, obj):
+        """Check if user needs to complete onboarding"""
+        has_profile = False
+        if hasattr(obj, 'general_profile') or hasattr(obj, 'referred_profile') or \
+           hasattr(obj, 'employer_profile') or hasattr(obj, 'trainer_profile') or \
+           hasattr(obj, 'agency_profile'):
+            has_profile = True
+        return not has_profile
+
 
 
 class PasswordResetRequestSerializer(serializers.Serializer):

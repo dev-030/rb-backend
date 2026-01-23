@@ -20,6 +20,9 @@ class TrainerProgramSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
     
     def get_learner_count(self, obj):
+        # Look for annotated value
+        if hasattr(obj, 'learner_count'):
+            return obj.learner_count
         return obj.enrollments.count()
 
 

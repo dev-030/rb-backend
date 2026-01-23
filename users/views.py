@@ -4,7 +4,7 @@ from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Q, Count
+from django.db.models import Q, Count, OuterRef, Exists
 from django.shortcuts import get_object_or_404
 
 from users.models import (
@@ -58,7 +58,19 @@ class JobListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated, IsJobSeeker]
     
     def get_queryset(self):
-        queryset = Job.objects.filter(status='active')
+        user = self.request.user
+        
+        # Subquery to check if user applied
+        has_applied_subquery = JobApplication.objects.filter(
+            job=OuterRef('pk'),
+            applicant=user
+        )
+        
+        queryset = Job.objects.filter(status='active').select_related(
+            'employer', 'employer__user'
+        ).annotate(
+            has_applied_val=Exists(has_applied_subquery)
+        )
         
         # Search
         search = self.request.query_params.get('search', None)
@@ -94,7 +106,17 @@ class JobDetailView(generics.RetrieveAPIView):
     """Get single job details"""
     serializer_class = JobSerializer
     permission_classes = [IsAuthenticated, IsJobSeeker]
-    queryset = Job.objects.all()
+    
+    def get_queryset(self):
+        # Optimize detail view as well
+        user = self.request.user
+        has_applied_subquery = JobApplication.objects.filter(
+            job=OuterRef('pk'),
+            applicant=user
+        )
+        return Job.objects.select_related('employer', 'employer__user').annotate(
+            has_applied_val=Exists(has_applied_subquery)
+        )
 
 
 class JobApplicationCreateView(APIView):
@@ -150,7 +172,7 @@ class JobApplicationListView(generics.ListAPIView):
     def get_queryset(self):
         queryset = JobApplication.objects.filter(
             applicant=self.request.user
-        )
+        ).select_related('job', 'job__employer')
         
         # Filter by status if provided
         status_filter = self.request.query_params.get('status', None)
@@ -166,7 +188,7 @@ class JobApplicationDetailView(generics.RetrieveAPIView):
     permission_classes = [IsAuthenticated, IsJobSeeker]
     
     def get_queryset(self):
-        return JobApplication.objects.filter(applicant=self.request.user)
+        return JobApplication.objects.filter(applicant=self.request.user).select_related('job', 'job__employer')
 
 
 class InterviewAndRejectedApplicationsView(generics.ListAPIView):
@@ -178,7 +200,7 @@ class InterviewAndRejectedApplicationsView(generics.ListAPIView):
         return JobApplication.objects.filter(
             applicant=self.request.user,
             status__in=['interview_scheduled', 'rejected']
-        ).order_by('-applied_at')
+        ).select_related('job', 'job__employer').order_by('-applied_at')
 
 
 class InterviewListView(generics.ListAPIView):
@@ -189,7 +211,7 @@ class InterviewListView(generics.ListAPIView):
     def get_queryset(self):
         return Interview.objects.filter(
             application__applicant=self.request.user
-        ).order_by('scheduled_date', 'scheduled_time')
+        ).select_related('application', 'application__job', 'application__job__employer').order_by('scheduled_date', 'scheduled_time')
 
 
 # ===== SAVED JOBS =====
@@ -222,7 +244,7 @@ class SavedJobListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated, IsJobSeeker]
     
     def get_queryset(self):
-        return SavedJob.objects.filter(user=self.request.user)
+        return SavedJob.objects.filter(user=self.request.user).select_related('job', 'job__employer')
 
 
 class SavedJobDeleteView(generics.DestroyAPIView):
@@ -240,9 +262,19 @@ class TrainingProgramListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated, IsJobSeeker]
     
     def get_queryset(self):
-        queryset = TrainingProgram.objects.filter(is_active=True)
+        user = self.request.user
         
-
+        # Subquery to check if enrolled
+        is_enrolled_subquery = Enrollment.objects.filter(
+            program=OuterRef('pk'),
+            user=user
+        )
+        
+        queryset = TrainingProgram.objects.filter(is_active=True).select_related(
+            'provider', 'provider__user'
+        ).annotate(
+            is_enrolled_val=Exists(is_enrolled_subquery)
+        )
         
         # Search
         search = self.request.query_params.get('search', None)
