@@ -20,6 +20,8 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 import logging
 from users.notifications import notify_admin_new_registration
+from users.models import GeneralUser, ReferredUser, CaseAssignment
+from agency.models import AgencyCaseLoad
 
 logger = logging.getLogger(__name__)
 
@@ -451,8 +453,7 @@ class GoogleLoginView(APIView):
                 'needs_onboarding': needs_onboarding,
                 'user': {
                     'email': user.email,
-                    'first_name': user.first_name,
-                    'last_name': user.last_name,
+                    'full_name': user.full_name,
                     'id': user.id,
                     'user_type': user.user_type
                 }
