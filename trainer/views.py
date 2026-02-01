@@ -5,7 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
-from django.db.models import Avg
+from django.db.models import Avg, Count, Q
 from django.utils import timezone
 
 from users.models import TrainingProgram, Enrollment, Certificate, Resume, EmployerTrainingLinkage
