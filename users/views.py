@@ -3,7 +3,8 @@
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.db.models import Q, Count, OuterRef, Exists
 from django.shortcuts import get_object_or_404
 
@@ -53,24 +54,27 @@ class DashboardView(APIView):
 
 # ===== JOB SEARCH & APPLICATIONS =====
 class JobListView(generics.ListAPIView):
-    """List all active jobs with search and filters"""
+    """List all active jobs with search and filters (public access)"""
     serializer_class = JobSerializer
-    permission_classes = [IsAuthenticated, IsJobSeeker]
+    permission_classes = [AllowAny]
+    authentication_classes = [JWTAuthentication]  # Avoid SessionAuth CSRF issues
     
     def get_queryset(self):
         user = self.request.user
         
-        # Subquery to check if user applied
-        has_applied_subquery = JobApplication.objects.filter(
-            job=OuterRef('pk'),
-            applicant=user
-        )
-        
         queryset = Job.objects.filter(status='active').select_related(
             'employer', 'employer__user'
-        ).annotate(
-            has_applied_val=Exists(has_applied_subquery)
         )
+        
+        # Only annotate has_applied for authenticated users
+        if user.is_authenticated:
+            has_applied_subquery = JobApplication.objects.filter(
+                job=OuterRef('pk'),
+                applicant=user
+            )
+            queryset = queryset.annotate(
+                has_applied_val=Exists(has_applied_subquery)
+            )
         
         # Search
         search = self.request.query_params.get('search', None)
@@ -103,20 +107,26 @@ class JobListView(generics.ListAPIView):
 
 
 class JobDetailView(generics.RetrieveAPIView):
-    """Get single job details"""
+    """Get single job details (public access)"""
     serializer_class = JobSerializer
-    permission_classes = [IsAuthenticated, IsJobSeeker]
+    permission_classes = [AllowAny]
+    authentication_classes = [JWTAuthentication]  # Avoid SessionAuth CSRF issues
     
     def get_queryset(self):
-        # Optimize detail view as well
         user = self.request.user
-        has_applied_subquery = JobApplication.objects.filter(
-            job=OuterRef('pk'),
-            applicant=user
-        )
-        return Job.objects.select_related('employer', 'employer__user').annotate(
-            has_applied_val=Exists(has_applied_subquery)
-        )
+        queryset = Job.objects.select_related('employer', 'employer__user')
+        
+        # Only annotate has_applied for authenticated users
+        if user.is_authenticated:
+            has_applied_subquery = JobApplication.objects.filter(
+                job=OuterRef('pk'),
+                applicant=user
+            )
+            queryset = queryset.annotate(
+                has_applied_val=Exists(has_applied_subquery)
+            )
+        
+        return queryset
 
 
 class JobApplicationCreateView(APIView):
@@ -257,24 +267,27 @@ class SavedJobDeleteView(generics.DestroyAPIView):
 
 # ===== TRAINING & CERTIFICATES =====
 class TrainingProgramListView(generics.ListAPIView):
-    """List all available training programs"""
+    """List all available training programs (public access)"""
     serializer_class = TrainingProgramSerializer
-    permission_classes = [IsAuthenticated, IsJobSeeker]
+    permission_classes = [AllowAny]
+    authentication_classes = [JWTAuthentication]  # Avoid SessionAuth CSRF issues
     
     def get_queryset(self):
         user = self.request.user
         
-        # Subquery to check if enrolled
-        is_enrolled_subquery = Enrollment.objects.filter(
-            program=OuterRef('pk'),
-            user=user
-        )
-        
         queryset = TrainingProgram.objects.filter(is_active=True).select_related(
             'provider', 'provider__user'
-        ).annotate(
-            is_enrolled_val=Exists(is_enrolled_subquery)
         )
+        
+        # Only annotate is_enrolled for authenticated users
+        if user.is_authenticated:
+            is_enrolled_subquery = Enrollment.objects.filter(
+                program=OuterRef('pk'),
+                user=user
+            )
+            queryset = queryset.annotate(
+                is_enrolled_val=Exists(is_enrolled_subquery)
+            )
         
         # Search
         search = self.request.query_params.get('search', None)
