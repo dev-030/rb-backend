@@ -44,7 +44,7 @@ class CreateCheckoutSessionView(APIView):
             # Create Stripe Checkout Session
             checkout_session = stripe.checkout.Session.create(
                 # payment_method_types=['card'], # Removed to allow all methods from Dashboard
-                 payment_method_types=['card', 'affirm', 'klarna'],
+                automatic_payment_methods={'enabled': True},
                 line_items=[{
                     'price_data': {
                         'currency': 'usd',
