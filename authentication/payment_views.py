@@ -16,7 +16,7 @@ from .email_service import send_payment_receipt_email
 from core.permissions import IsJobSeeker
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
-
+stripe.api_version = '2024-11-20.acacia'
 
 class CreateCheckoutSessionView(APIView):
     """Create Stripe Checkout Session for registration fee"""
