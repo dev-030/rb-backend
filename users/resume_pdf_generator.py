@@ -11,7 +11,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from io import BytesIO
 import base64
-from PIL import Image as PILImage
+
 
 
 class ResumePDFGenerator:

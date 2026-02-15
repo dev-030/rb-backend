@@ -24,12 +24,12 @@ tzdata==2025.2
 urllib3==2.5.0
 
 # Payment processing
-stripe==11.1.1
+stripe>=14.3.0
 
 # PDF parsing and generation
 PyPDF2==3.0.1
 reportlab==4.2.5
-Pillow==11.0.0
+
 
 # Email sending (production)
 # celery[redis]==5.4.0  # Uncomment for async task processing
