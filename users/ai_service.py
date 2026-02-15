@@ -5,6 +5,8 @@ import json
 import re
 import requests
 import fitz  # PyMuPDF
+import docx  # python-docx
+from io import BytesIO
 from typing import Dict, List, Any
 from django.conf import settings
 from openai import OpenAI
@@ -105,6 +107,50 @@ class PDFParser:
         return text.strip()
 
 
+class DocxParser:
+    """Production-grade DOCX text extraction service using python-docx."""
+    
+    @staticmethod
+    def download_and_extract_text(url: str) -> str:
+        """
+        Download DOCX from Cloudinary and extract text.
+        
+        Args:
+            url: Cloudinary URL of the DOCX resume
+            
+        Returns:
+            Clean, formatted text content from DOCX
+            
+        Raises:
+            Exception: If download or parsing fails
+        """
+        try:
+            # Download DOCX from Cloudinary with timeout
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            
+            # Open DOCX from bytes stream
+            doc_file = BytesIO(response.content)
+            document = docx.Document(doc_file)
+            
+            # Extract text from paragraphs
+            text_content = []
+            for paragraph in document.paragraphs:
+                if paragraph.text.strip():
+                    text_content.append(paragraph.text)
+            
+            # Combine paragraphs
+            full_text = "\n\n".join(text_content)
+            
+            # Advanced text cleaning (reuse PDFParser logic)
+            cleaned_text = PDFParser._clean_text(full_text)
+            
+            return cleaned_text
+            
+        except requests.RequestException as e:
+            raise Exception(f"Failed to download DOCX from Cloudinary: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Failed to extract text from DOCX: {str(e)}")
 class CareerAnalyzer:
     """AI-powered career analysis using OpenAI GPT-4o with vision."""
     
@@ -492,6 +538,12 @@ def analyze_career_data(
         # Use GPT-4o Vision to analyze image directly
         print(f"📸 Detected image resume: {pdf_url}")
         analysis_result = analyzer.analyze_career_path_from_image(quiz_data, work_history, pdf_url)
+    elif url_lower.endswith('.docx'):
+        # Extract text from DOCX, then analyze
+        print(f"📝 Detected DOCX resume: {pdf_url}")
+        docx_parser = DocxParser()
+        resume_text = docx_parser.download_and_extract_text(pdf_url)
+        analysis_result = analyzer.analyze_career_path(quiz_data, work_history, resume_text)
     else:
         # Extract text from PDF first, then analyze
         print(f"📄 Detected PDF resume: {pdf_url}")
