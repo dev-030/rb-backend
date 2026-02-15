@@ -16,7 +16,7 @@ from .email_service import send_payment_receipt_email
 from core.permissions import IsJobSeeker
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
-stripe.api_version = '2024-11-20.acacia'
+# stripe.api_version = '2024-11-20.acacia'
 
 class CreateCheckoutSessionView(APIView):
     """Create Stripe Checkout Session for registration fee"""
@@ -44,7 +44,7 @@ class CreateCheckoutSessionView(APIView):
             # Create Stripe Checkout Session
             checkout_session = stripe.checkout.Session.create(
                 # payment_method_types=['card'], # Removed to allow all methods from Dashboard
-                automatic_payment_methods={'enabled': True},
+                # automatic_payment_methods={'enabled': True},
                 line_items=[{
                     'price_data': {
                         'currency': 'usd',
