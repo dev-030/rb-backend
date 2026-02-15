@@ -415,3 +415,86 @@ class DownloadReceiptView(APIView):
             return Response({
                 'error': 'Payment not found'
             }, status=status.HTTP_404_NOT_FOUND)
+
+
+class VerifyPaymentSessionView(APIView):
+    """
+    Manually verify a Stripe Checkout Session status.
+    This serves as a backup to webhooks to ensure users get immediate access
+    if the webhook is delayed or fails.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        session_id = request.data.get('session_id')
+        if not session_id:
+            return Response({'error': 'session_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # 1. Retrieve session from Stripe
+            session = stripe.checkout.Session.retrieve(session_id)
+            
+            # 2. Check if paid
+            if session.payment_status != 'paid':
+                return Response({
+                    'status': 'unpaid',
+                    'message': 'Payment has not been completed yet.'
+                }, status=status.HTTP_200_OK)
+
+            # 3. Get metadata to find user/payment
+            payment_id = session.get('metadata', {}).get('payment_id')
+            user_id = session.get('metadata', {}).get('user_id')
+
+            # 4. Verify user owns this session
+            if str(request.user.id) != user_id:
+                return Response({'error': 'Unauthorized session verification'}, status=status.HTTP_403_FORBIDDEN)
+
+            # 5. Update Payment Record
+            if payment_id:
+                try:
+                    payment = Payment.objects.get(id=payment_id)
+                    
+                    # Update status if not already succeeded
+                    if payment.status != 'succeeded':
+                        payment.status = 'succeeded'
+                        payment.stripe_checkout_session_id = session.id
+                        payment.generate_receipt_number()
+                        payment.save()
+                        
+                        # Log manual verification
+                        TransactionLog.objects.create(
+                            payment=payment,
+                            event_type='manual_verification_success',
+                            details={'session_id': session.id}
+                        )
+                except Payment.DoesNotExist:
+                    pass # Should not happen if metadata is correct
+
+            # 6. Update User Profile (The Critical Part)
+            user = request.user
+            profile_updated = False
+            
+            if user.user_type == 'general':
+                profile = user.general_profile
+                if not profile.has_paid:
+                    profile.has_paid = True
+                    profile.save()
+                    profile_updated = True
+            elif user.user_type == 'agency_referred':
+                profile = user.referred_profile
+                if not profile.has_paid:
+                    profile.has_paid = True
+                    profile.save()
+                    profile_updated = True
+
+            return Response({
+                'status': 'paid',
+                'verified': True,
+                'profile_updated': profile_updated,
+                'message': 'Payment verified successfully'
+            }, status=status.HTTP_200_OK)
+
+        except stripe.error.StripeError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': f"Verification failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

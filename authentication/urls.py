@@ -6,7 +6,8 @@ from .views import (
 )
 from .payment_views import (
     CreateCheckoutSessionView, StripeWebhookView,
-    PaymentHistoryView, DownloadReceiptView
+    PaymentHistoryView, DownloadReceiptView,
+    VerifyPaymentSessionView
 )
 from rest_framework_simplejwt.views import ( TokenObtainPairView, TokenRefreshView )
 
@@ -35,4 +36,5 @@ urlpatterns = [
     path('payment/webhook/', StripeWebhookView.as_view(), name='stripe_webhook'),
     path('payment/history/', PaymentHistoryView.as_view(), name='payment_history'),
     path('payment/receipt/<uuid:payment_id>/', DownloadReceiptView.as_view(), name='download_receipt'),
+    path('payment/verify-session/', VerifyPaymentSessionView.as_view(), name='verify_payment_session'),
 ]
