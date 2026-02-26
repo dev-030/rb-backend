@@ -11,15 +11,13 @@ from users.serializers import ResumeGenerationRequestSerializer
 from users.resume_pdf_generator import ResumePDFGenerator
 from users.cloudinary_service import CloudinaryUploadService
 from users.ai_service import analyze_career_data
-from users.models import Resume, Document
+from users.models import Resume
 from django.db import transaction
 import uuid
 import logging
 
 logger = logging.getLogger(__name__)
 
-
-import json
 
 class ResumeGenerationPipelineView(APIView):
     """
@@ -33,24 +31,25 @@ class ResumeGenerationPipelineView(APIView):
         """
         Execute full resume generation pipeline
         
-        Accepts multipart/form-data:
-        - data: JSON string 
-        - file: Optional file upload
+        Request body:
+        {
+            "personalInfo": {...},
+            "workExperience": [...],
+            "skills": [...],
+            "education": [...],
+            "quiz_data": {...}  // optional
+        }
         
-        Or application/json
+        Returns:
+        {
+            "resume_analysis": {...},
+            "career_recommendations": [...],
+            "resume_pdf_url": "...",
+            "resume_id": "..."
+        }
         """
-        # Parse input data
-        raw_data = request.data
-        if 'data' in raw_data and isinstance(raw_data['data'], str):
-            try:
-                input_data = json.loads(raw_data['data'])
-            except json.JSONDecodeError:
-                return Response({'error': 'Invalid JSON in data field'}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            input_data = raw_data
-
         # Validate input
-        serializer = ResumeGenerationRequestSerializer(data=input_data)
+        serializer = ResumeGenerationRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({
                 'error': 'Invalid request data',
@@ -61,87 +60,12 @@ class ResumeGenerationPipelineView(APIView):
         user = request.user
         
         try:
-            # Map new structure to internal domain structure (backward compatibility for PDF Gen & AI)
-            personal_details = validated_data.get('personalDetails', {})
-            address = personal_details.get('address', {})
-            formatted_address = f"{address.get('city', '')}, {address.get('state', '')}".strip(', ')
-            
-            # Helper to map date strings if needed
-            
-            internal_data = {
-                'personalInfo': {
-                    'fullName': personal_details.get('fullName', ''),
-                    'email': personal_details.get('emailAddress', ''),
-                    'phone': personal_details.get('phoneNumber', ''),
-                    'location': formatted_address,
-                    # 'profilePicture': ''  # Removed
-                },
-                'skills': personal_details.get('skills', []),
-                'education': [],
-                'workExperience': [],
-                'quiz_data': validated_data.get('quiz_data', {})
-            }
-            
-            # Map Education
-            for edu in validated_data.get('education', []):
-                internal_data['education'].append({
-                    'institutionName': edu.get('institutionName', ''),
-                    'degree': edu.get('highestEducationCompleted', ''),
-                    'fieldOfStudy': edu.get('program', ''),
-                    'startYear': edu.get('startYear', ''),
-                    'endYear': edu.get('endYear', ''),
-                    'location': edu.get('location', '')
-                })
-
-            # Map Work Experience
-            work_history_wrapper = validated_data.get('workHistory', {})
-            if not work_history_wrapper.get('noWorkHistory', False):
-                for exp in work_history_wrapper.get('experiences', []):
-                    internal_data['workExperience'].append({
-                        'jobTitle': exp.get('jobTitle', ''),
-                        'company': exp.get('companyName', ''),
-                        'location': exp.get('location', ''),
-                        'startDate': exp.get('startDate', ''),
-                        'endDate': exp.get('endDate', ''),
-                        'current': exp.get('isCurrentlyEmployed', False),
-                        'description': exp.get('responsibilitiesAndDescription', ''),
-                        'responsibilities': [] # Content merged in description
-                    })
-
-            # Handle Credential File Upload
-            credential_url = None
-            
-            if 'file' in request.FILES:
-                uploaded_file = request.FILES['file']
-                license_name = validated_data.get('credentialsAndLicenses', {}).get('otherLicense', 'Other License')
-                logger.info(f"Saving credential file for user {user.id}")
-                
-                try:
-                    # Create Document entry (which handles Cloudinary upload via model field)
-                    doc = Document.objects.create(
-                        user=user,
-                        document_type='certificate',
-                        file=uploaded_file,
-                        filename=uploaded_file.name,
-                        description=f"Uploaded via Resume Builder: {license_name}",
-                        uploaded_by=user
-                    )
-                    credential_url = doc.file.url
-                    
-                    internal_data.setdefault('credentials', {})['otherLicenseFileUrl'] = credential_url
-                    internal_data['credentials']['otherLicenseName'] = license_name
-                    internal_data['credentials']['selectedLicenses'] = validated_data.get('credentialsAndLicenses', {}).get('selectedLicenses', [])
-                except Exception as e:
-                    logger.error(f"Failed to save credential document: {e}")
-                    # Continue without the file if upload fails, but log it
-
-
-            # Step 1: Generate PDF from resume data (using mapped internal_data)
+            # Step 1: Generate PDF from resume data
             logger.info(f"Generating PDF for user {user.id}")
             pdf_generator = ResumePDFGenerator()
-            pdf_buffer = pdf_generator.generate(internal_data)
+            pdf_buffer = pdf_generator.generate(validated_data)
             
-            # Step 2: Upload PDF to Cloudinary
+            # Step 2: Upload PDF to Cloudinary (pending/ folder)
             logger.info(f"Uploading PDF to Cloudinary for user {user.id}")
             cloudinary_service = CloudinaryUploadService()
             filename = f"resume_{user.id}_{uuid.uuid4().hex[:8]}"
@@ -154,30 +78,29 @@ class ResumeGenerationPipelineView(APIView):
             
             # Step 3: Prepare data for AI analysis
             # Convert work experience to format expected by AI
-            work_history_ai = []
-            for exp in internal_data['workExperience']:
-                work_history_ai.append({
+            work_history = []
+            for exp in validated_data.get('workExperience', []):
+                work_history.append({
                     'job_title': exp.get('jobTitle', ''),
                     'company': exp.get('company', ''),
                     'duration': f"{exp.get('startDate', '')} to {exp.get('endDate', 'Present')}"
                 })
             
             # Use provided quiz_data or create default
-            personal_info = internal_data.get('personalInfo', {})
-            quiz_data = internal_data.get('quiz_data', {
+            quiz_data = validated_data.get('quiz_data', {
                 'interests': 'General',
                 'work_environment': 'Flexible',
                 'training_flexibility': 'Full-time',
                 'strengths': 'Adaptable',
                 'job_priorities': 'Career growth',
-                'location': personal_info.get('location', 'Not specified')
+                'location': validated_data.get('personalInfo', {}).get('location', 'Not specified')
             })
             
             # Step 4: Analyze with AI
             logger.info(f"Starting AI career analysis for user {user.id}")
             analysis_result = analyze_career_data(
                 quiz_data=quiz_data,
-                work_history=work_history_ai,
+                work_history=work_history,
                 pdf_url=pdf_url
             )
             

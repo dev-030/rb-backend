@@ -46,29 +46,3 @@ class CloudinaryUploadService:
             
         except Exception as e:
             raise Exception(f"Cloudinary upload failed: {str(e)}")
-
-    @staticmethod
-    def upload_credential_file(file_obj, filename_base):
-        """
-        Upload generic credential file (PDF/Image/etc)
-        Using resource_type='auto' to detect type
-        """
-        try:
-            result = cloudinary.uploader.upload(
-                file_obj,
-                folder='credentials',
-                resource_type='auto',
-                public_id=filename_base,
-                upload_preset='registration_uploads',
-                tags=['credentials'],
-                overwrite=True
-            )
-            
-            return {
-                'public_id': result.get('public_id'),
-                'url': result.get('url'),
-                'secure_url': result.get('secure_url')
-            }
-            
-        except Exception as e:
-            raise Exception(f"Cloudinary upload failed: {str(e)}")
