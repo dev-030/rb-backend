@@ -311,50 +311,53 @@ class CareerRecommendationResponseSerializer(serializers.Serializer):
 
 
 # Resume Generation Request Serializers
-class PersonalInfoInputSerializer(serializers.Serializer):
+class AddressSerializer(serializers.Serializer):
+    streetAddress = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.CharField(required=False, allow_blank=True)
+    state = serializers.CharField(required=False, allow_blank=True)
+    zipCode = serializers.CharField(required=False, allow_blank=True)
+
+class PersonalDetailsSerializer(serializers.Serializer):
     """Personal information for resume generation"""
     fullName = serializers.CharField(required=False, allow_blank=True)
-    email = serializers.EmailField(required=False, allow_blank=True)
-    location = serializers.CharField(required=False, allow_blank=True)
-    dateOfBirth = serializers.DateField(required=False, allow_null=True)
-    profilePicture = serializers.CharField(required=False, allow_blank=True)  # base64
-
-
-class WorkExperienceGenerationSerializer(serializers.Serializer):
-    """Work experience for resume generation"""
-    jobTitle = serializers.CharField(required=False, allow_blank=True)
-    company = serializers.CharField(required=False, allow_blank=True)
-    location = serializers.CharField(required=False, allow_blank=True)
-    startDate = serializers.DateField(required=False, allow_null=True)
-    endDate = serializers.DateField(required=False, allow_null=True)
-    current = serializers.BooleanField(default=False)
-    responsibilities = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        allow_empty=True
-    )
-    description = serializers.CharField(required=False, allow_blank=True)
-
-
-class EducationInputSerializer(serializers.Serializer):
-    """Education for resume generation"""
-    institutionName = serializers.CharField(required=False, allow_blank=True)
-    degree = serializers.CharField(required=False, allow_blank=True)
-    fieldOfStudy = serializers.CharField(required=False, allow_blank=True)
-    grade = serializers.CharField(required=False, allow_blank=True)
-    startYear = serializers.CharField(required=False, allow_blank=True)
-    endYear = serializers.CharField(required=False, allow_blank=True)
-    current = serializers.BooleanField(default=False)
-
-
-class ResumeGenerationRequestSerializer(serializers.Serializer):
-    """Main request for resume generation and analysis"""
-    personalInfo = PersonalInfoInputSerializer(required=False)
-    workExperience = WorkExperienceGenerationSerializer(many=True, required=False)
+    emailAddress = serializers.EmailField(required=False, allow_blank=True)
+    phoneNumber = serializers.CharField(required=False, allow_blank=True)
+    address = AddressSerializer(required=False)
     skills = serializers.ListField(
         child=serializers.CharField(),
         required=False,
         allow_empty=True
     )
-    education = EducationInputSerializer(many=True, required=False)
+
+class CredentialsSerializer(serializers.Serializer):
+    selectedLicenses = serializers.ListField(child=serializers.CharField(), required=False)
+    otherLicense = serializers.CharField(required=False, allow_blank=True)
+
+class ExperienceSerializer(serializers.Serializer):
+    jobTitle = serializers.CharField(required=False, allow_blank=True)
+    companyName = serializers.CharField(required=False, allow_blank=True)
+    location = serializers.CharField(required=False, allow_blank=True)
+    startDate = serializers.CharField(required=False, allow_blank=True)
+    endDate = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    isCurrentlyEmployed = serializers.BooleanField(default=False)
+    responsibilitiesAndDescription = serializers.CharField(required=False, allow_blank=True)
+
+class WorkHistoryWrapperSerializer(serializers.Serializer):
+    noWorkHistory = serializers.BooleanField(default=False)
+    experiences = ExperienceSerializer(many=True, required=False)
+
+class NewEducationSerializer(serializers.Serializer):
+    institutionName = serializers.CharField(required=False, allow_blank=True)
+    location = serializers.CharField(required=False, allow_blank=True)
+    highestEducationCompleted = serializers.CharField(required=False, allow_blank=True)
+    program = serializers.CharField(required=False, allow_blank=True)
+    startYear = serializers.CharField(required=False, allow_blank=True)
+    endYear = serializers.CharField(required=False, allow_blank=True)
+
+class ResumeGenerationRequestSerializer(serializers.Serializer):
+    """Main request for resume generation and analysis"""
+    personalDetails = PersonalDetailsSerializer(required=False)
+    education = NewEducationSerializer(many=True, required=False)
+    credentialsAndLicenses = CredentialsSerializer(required=False)
+    workHistory = WorkHistoryWrapperSerializer(required=False)
     quiz_data = QuizDataSerializer(required=False)  # Optional quiz data for AI

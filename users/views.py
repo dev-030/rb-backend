@@ -32,21 +32,27 @@ from .notifications import (
 # ===== DASHBOARD =====
 class DashboardView(APIView):
     """Job seeker dashboard with KPIs and overview"""
-    permission_classes = [IsAuthenticated, IsJobSeeker]
+    permission_classes = [AllowAny]
+    authentication_classes = [] # Fix 401 Unauthorized for guests
     
     def get(self, request):
         from users.models import TrainingProvider
         user = request.user
         
-        # Calculate platform stats
+        # Calculate platform stats (available to everyone)
         stats = {
             'live_jobs': Job.objects.filter(status='active').count(),
             'trainers_count': TrainingProvider.objects.count(),
             'total_trainings': TrainingProgram.objects.filter(is_active=True).count(),
-            'certificates_earned': Certificate.objects.filter(
-                enrollment__user=user, verification_status='verified'
-            ).count(),
         }
+
+        # User-specific stats (only for authenticated users)
+        if user.is_authenticated:
+            stats['certificates_earned'] = Certificate.objects.filter(
+                enrollment__user=user, verification_status='verified'
+            ).count()
+        else:
+            stats['certificates_earned'] = 0
         
         serializer = DashboardStatsSerializer(stats)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -57,7 +63,7 @@ class JobListView(generics.ListAPIView):
     """List all active jobs with search and filters (public access)"""
     serializer_class = JobSerializer
     permission_classes = [AllowAny]
-    authentication_classes = [JWTAuthentication]  # Avoid SessionAuth CSRF issues
+    authentication_classes = []  # Fix 401 Unauthorized for guests
     
     def get_queryset(self):
         user = self.request.user
@@ -110,7 +116,7 @@ class JobDetailView(generics.RetrieveAPIView):
     """Get single job details (public access)"""
     serializer_class = JobSerializer
     permission_classes = [AllowAny]
-    authentication_classes = [JWTAuthentication]  # Avoid SessionAuth CSRF issues
+    authentication_classes = []  # Fix 401 Unauthorized for guests
     
     def get_queryset(self):
         user = self.request.user
@@ -270,7 +276,7 @@ class TrainingProgramListView(generics.ListAPIView):
     """List all available training programs (public access)"""
     serializer_class = TrainingProgramSerializer
     permission_classes = [AllowAny]
-    authentication_classes = [JWTAuthentication]  # Avoid SessionAuth CSRF issues
+    authentication_classes = []  # Fix 401 Unauthorized for guests
     
     def get_queryset(self):
         user = self.request.user
