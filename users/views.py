@@ -204,8 +204,12 @@ class JobApplicationListView(generics.ListAPIView):
         combined = platform_data + manual_data
         combined.sort(key=lambda x: x.get('applied_at', ''), reverse=True)
         
-        return Response(combined)
-
+        return Response({
+            'count': len(combined),
+            'next': None,
+            'previous': None,
+            'results': combined
+        })
 
 class JobApplicationDetailView(generics.RetrieveAPIView):
     """Get single application details"""
@@ -379,8 +383,12 @@ class MyTrainingView(generics.ListAPIView):
         combined = platform_data + manual_data
         combined.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         
-        return Response(combined)
-
+        return Response({
+            'count': len(combined),
+            'next': None,
+            'previous': None,
+            'results': combined
+        })
 
 class CertificateUploadView(APIView):
     """Upload certificate for verification"""
@@ -450,8 +458,12 @@ class CertificateListView(generics.ListAPIView):
         combined = platform_data + manual_data
         combined.sort(key=lambda x: x.get('uploaded_at', ''), reverse=True)
         
-        return Response(combined)
-
+        return Response({
+            'count': len(combined),
+            'next': None,
+            'previous': None,
+            'results': combined
+        })
 
 # ===== RESUME & PROFILE =====
 class CareerQuizView(APIView):
