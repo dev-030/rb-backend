@@ -39,7 +39,17 @@ from .notification_views import (
     MarkNotificationReadView, MarkAllNotificationsReadView,
     DeleteNotificationView, ClearAllNotificationsView
 )
+from .views import (
+    ManualJobApplicationViewSet, ManualTrainingViewSet,
+    ManualCertificateViewSet, ManualInterviewViewSet
+)
+from rest_framework.routers import DefaultRouter
 
+router = DefaultRouter()
+router.register(r'applications/manual', ManualJobApplicationViewSet, basename='manual-application')
+router.register(r'training/manual', ManualTrainingViewSet, basename='manual-training')
+router.register(r'certificates/manual', ManualCertificateViewSet, basename='manual-certificate')
+router.register(r'interviews/manual', ManualInterviewViewSet, basename='manual-interview')
 
 urlpatterns = [
     # Dashboard
@@ -105,3 +115,5 @@ urlpatterns = [
     path('notifications/<uuid:pk>/delete/', DeleteNotificationView.as_view(), name='notification_delete'),
     path('notifications/clear-all/', ClearAllNotificationsView.as_view(), name='notifications_clear_all'),
 ]
+
+urlpatterns += router.urls

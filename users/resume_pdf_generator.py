@@ -146,6 +146,12 @@ class ResumePDFGenerator:
         if skills:
             story.append(Spacer(1, 0.2*inch))
             story.extend(self._build_skills_section(skills))
+            
+        # Credentials Section
+        credentials = resume_data.get('credentials', {})
+        if credentials.get('selectedLicenses') or credentials.get('otherLicense') or credentials.get('credential_url'):
+            story.append(Spacer(1, 0.2*inch))
+            story.extend(self._build_credentials_section(credentials))
         
         # Build PDF
         doc.build(story)
@@ -161,12 +167,23 @@ class ResumePDFGenerator:
         if name:
             elements.append(Paragraph(name, self.styles['Name']))
         
-        # Contact info (email, location, DOB)
+        # Contact info (email, location, DOB, phone)
         contact_parts = []
         if personal.get('email'):
             contact_parts.append(personal['email'])
-        if personal.get('location'):
+        if personal.get('phone'):
+            contact_parts.append(personal['phone'])
+        
+        location_parts = []
+        if personal.get('city'):
+            location_parts.append(personal['city'])
+        if personal.get('state'):
+            location_parts.append(personal['state'])
+        if location_parts:
+            contact_parts.append(', '.join(location_parts))
+        elif personal.get('location'):
             contact_parts.append(personal['location'])
+            
         if personal.get('dateOfBirth'):
             contact_parts.append(f"DOB: {personal['dateOfBirth']}")
         
@@ -208,7 +225,12 @@ class ResumePDFGenerator:
             
             # Add dates
             start_date = exp.get('startDate', '')
-            end_date = exp.get('endDate', 'Present') if not exp.get('current') else 'Present'
+            end_date = exp.get('endDate', '')
+            if not end_date and exp.get('current'):
+                end_date = 'Present'
+            elif not end_date:
+                end_date = 'Present'
+                
             if start_date:
                 company_text += f" | {start_date} - {end_date}"
             
@@ -252,6 +274,8 @@ class ResumePDFGenerator:
             institution_parts = []
             if edu.get('institutionName'):
                 institution_parts.append(edu['institutionName'])
+            if edu.get('location'):
+                institution_parts.append(edu['location'])
             
             start_year = edu.get('startYear', '')
             end_year = edu.get('endYear', 'Present') if not edu.get('current') else 'Present'
@@ -287,4 +311,32 @@ class ResumePDFGenerator:
             for skill in skills:
                 elements.append(Paragraph(f"• {skill}", self.styles['Skill']))
         
+        return elements
+
+    def _build_credentials_section(self, credentials):
+        """Build credentials and licenses section"""
+        elements = []
+        
+        # Section heading
+        elements.append(Paragraph('CREDENTIALS & LICENSES', self.styles['SectionHeading']))
+        elements.append(Spacer(1, 0.1*inch))
+        
+        # Display selected licenses
+        selected_licenses = credentials.get('selectedLicenses', [])
+        if selected_licenses:
+            for license in selected_licenses:
+                elements.append(Paragraph(f"• {license}", self.styles['Skill']))
+                
+        # Include 'other' license if present
+        other_license = credentials.get('otherLicense')
+        if other_license:
+            elements.append(Paragraph(f"• {other_license}", self.styles['Skill']))
+            
+        # Add a clickable link if a document was uploaded
+        credential_url = credentials.get('credential_url')
+        if credential_url:
+            elements.append(Spacer(1, 0.05*inch))
+            link_text = f"<font color='blue'><u><link href='{credential_url}'>View Attached Credential Document</link></u></font>"
+            elements.append(Paragraph(link_text, self.styles['Body']))
+            
         return elements

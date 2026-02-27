@@ -11,11 +11,13 @@ from django.shortcuts import get_object_or_404
 from users.models import (
     Job, JobApplication, Interview, TrainingProgram, Enrollment, Certificate,
     CareerQuiz, Resume, WorkExperience, Education, Skill, Document,
-    SavedJob, ContactMessage, GeneralUser, ReferredUser
+    SavedJob, ContactMessage, GeneralUser, ReferredUser,
+    ManualJobApplication, ManualTraining, ManualCertificate, ManualInterview
 )
 from .serializers import (
     JobSerializer, JobApplicationSerializer, InterviewSerializer,
     TrainingProgramSerializer, EnrollmentSerializer, CertificateSerializer,
+    ManualJobApplicationSerializer, ManualTrainingSerializer, ManualCertificateSerializer, ManualInterviewSerializer,
     CareerQuizSerializer, ResumeSerializer, WorkExperienceSerializer,
     EducationSerializer, SkillSerializer, DocumentSerializer,
     SavedJobSerializer, ContactMessageSerializer, DashboardStatsSerializer
@@ -175,21 +177,34 @@ class JobApplicationCreateView(APIView):
 
 
 class JobApplicationListView(generics.ListAPIView):
-    """List user's job applications with optional status filtering"""
-    serializer_class = JobApplicationSerializer
+    """List user's job applications (both platform and manual) with optional status filtering"""
     permission_classes = [IsAuthenticated, IsJobSeeker]
     
-    def get_queryset(self):
-        queryset = JobApplication.objects.filter(
-            applicant=self.request.user
+    def list(self, request, *args, **kwargs):
+        # 1. Platform Applications
+        platform_qs = JobApplication.objects.filter(
+            applicant=request.user
         ).select_related('job', 'job__employer')
         
-        # Filter by status if provided
-        status_filter = self.request.query_params.get('status', None)
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
+        # 2. Manual Applications
+        manual_qs = ManualJobApplication.objects.filter(
+            user=request.user
+        )
         
-        return queryset.order_by('-applied_at')
+        # Filter by status if provided
+        status_filter = request.query_params.get('status', None)
+        if status_filter:
+            platform_qs = platform_qs.filter(status=status_filter)
+            manual_qs = manual_qs.filter(status=status_filter)
+            
+        platform_data = JobApplicationSerializer(platform_qs, many=True, context={'request': request}).data
+        manual_data = ManualJobApplicationSerializer(manual_qs, many=True, context={'request': request}).data
+        
+        # Combine and sort by date descending
+        combined = platform_data + manual_data
+        combined.sort(key=lambda x: x.get('applied_at', ''), reverse=True)
+        
+        return Response(combined)
 
 
 class JobApplicationDetailView(generics.RetrieveAPIView):
@@ -343,18 +358,28 @@ class TrainingEnrollView(APIView):
 
 
 class MyTrainingView(generics.ListAPIView):
-    """List user's training enrollments"""
-    serializer_class = EnrollmentSerializer
+    """List user's training enrollments (platform and manual)"""
     permission_classes = [IsAuthenticated, IsJobSeeker]
     
-    def get_queryset(self):
-        status_filter = self.request.query_params.get('status', None)
-        queryset = Enrollment.objects.filter(user=self.request.user)
+    def list(self, request, *args, **kwargs):
+        status_filter = request.query_params.get('status', None)
+        
+        # 1. Platform Trainings
+        platform_qs = Enrollment.objects.filter(user=request.user)
+        # 2. Manual Trainings
+        manual_qs = ManualTraining.objects.filter(user=request.user)
         
         if status_filter:
-            queryset = queryset.filter(status=status_filter)
+            platform_qs = platform_qs.filter(status=status_filter)
+            manual_qs = manual_qs.filter(status=status_filter)
+            
+        platform_data = EnrollmentSerializer(platform_qs, many=True, context={'request': request}).data
+        manual_data = ManualTrainingSerializer(manual_qs, many=True, context={'request': request}).data
         
-        return queryset.order_by('-created_at')
+        combined = platform_data + manual_data
+        combined.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        return Response(combined)
 
 
 class CertificateUploadView(APIView):
@@ -406,14 +431,26 @@ class CertificateUploadView(APIView):
 
 
 class CertificateListView(generics.ListAPIView):
-    """List user's certificates"""
-    serializer_class = CertificateSerializer
+    """List user's certificates (platform and manual)"""
     permission_classes = [IsAuthenticated, IsJobSeeker]
     
-    def get_queryset(self):
-        return Certificate.objects.filter(
-            enrollment__user=self.request.user
-        ).order_by('-uploaded_at')
+    def list(self, request, *args, **kwargs):
+        # 1. Platform Certificates
+        platform_qs = Certificate.objects.filter(
+            enrollment__user=request.user
+        )
+        # 2. Manual Certificates
+        manual_qs = ManualCertificate.objects.filter(
+            user=request.user
+        )
+        
+        platform_data = CertificateSerializer(platform_qs, many=True, context={'request': request}).data
+        manual_data = ManualCertificateSerializer(manual_qs, many=True, context={'request': request}).data
+        
+        combined = platform_data + manual_data
+        combined.sort(key=lambda x: x.get('uploaded_at', ''), reverse=True)
+        
+        return Response(combined)
 
 
 # ===== RESUME & PROFILE =====
@@ -757,3 +794,55 @@ class DeleteAccountView(APIView):
                 'error': f'Failed to delete account: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+# ==========================================
+# MANUAL ENTRIES CRUD
+# ==========================================
+from rest_framework import viewsets
+
+class ManualJobApplicationViewSet(viewsets.ModelViewSet):
+    """CRUD for manual user-created job applications"""
+    serializer_class = ManualJobApplicationSerializer
+    permission_classes = [IsAuthenticated, IsJobSeeker]
+    
+    def get_queryset(self):
+        return ManualJobApplication.objects.filter(user=self.request.user)
+        
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class ManualTrainingViewSet(viewsets.ModelViewSet):
+    """CRUD for manual user-created training programs"""
+    serializer_class = ManualTrainingSerializer
+    permission_classes = [IsAuthenticated, IsJobSeeker]
+    
+    def get_queryset(self):
+        return ManualTraining.objects.filter(user=self.request.user)
+        
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class ManualCertificateViewSet(viewsets.ModelViewSet):
+    """CRUD for manual user-created certificates"""
+    serializer_class = ManualCertificateSerializer
+    permission_classes = [IsAuthenticated, IsJobSeeker]
+    
+    def get_queryset(self):
+        return ManualCertificate.objects.filter(user=self.request.user)
+        
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class ManualInterviewViewSet(viewsets.ModelViewSet):
+    """CRUD for manual user-created interviews"""
+    serializer_class = ManualInterviewSerializer
+    permission_classes = [IsAuthenticated, IsJobSeeker]
+    
+    def get_queryset(self):
+        return ManualInterview.objects.filter(user=self.request.user)
+        
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)

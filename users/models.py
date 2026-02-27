@@ -184,7 +184,7 @@ class Agency(models.Model):
 from .job_models import Job, JobApplication, Interview
 from .training_models import TrainingProgram, Enrollment, Certificate
 from .compliance_models import CaseAssignment, ComplianceTimeline, ProgressReport, AuditLog
-from .profile_models import CareerQuiz, Resume, WorkExperience, Education, Skill, Document
+from .profile_models import CareerQuiz, Resume, WorkExperience, Education, Skill, Document, ManualJobApplication, ManualTraining, ManualCertificate, ManualInterview
 from .payment_models import Payment, TransactionLog
 from .additional_models import SavedJob, ContactMessage, EmployerTrainingLinkage
 from .notification_models import Notification
@@ -197,6 +197,7 @@ __all__ = [
     'TrainingProgram', 'Enrollment', 'Certificate',
     'CaseAssignment', 'ComplianceTimeline', 'ProgressReport', 'AuditLog',
     'CareerQuiz', 'Resume', 'WorkExperience', 'Education', 'Skill', 'Document',
+    'ManualJobApplication', 'ManualTraining', 'ManualCertificate', 'ManualInterview',
     'Payment', 'TransactionLog',
     'SavedJob', 'ContactMessage', 'EmployerTrainingLinkage',
     'Notification',

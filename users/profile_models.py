@@ -191,3 +191,86 @@ class Document(models.Model):
     
     def __str__(self):
         return f"{self.document_type}: {self.filename}"
+
+
+# ==========================================
+# MANUAL ENTRIES (Non-Platform Tracking)
+# ==========================================
+
+class ManualJobApplication(models.Model):
+    """User-submitted applications made outside the platform"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='manual_applications')
+    
+    company_name = models.CharField(max_length=200)
+    job_title = models.CharField(max_length=200)
+    location = models.CharField(max_length=200, blank=True)
+    status = models.CharField(max_length=50, default='Applied')
+    
+    applied_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-applied_at']
+        
+    def __str__(self):
+        return f"Manual App: {self.user.full_name} -> {self.job_title} at {self.company_name}"
+
+
+class ManualTraining(models.Model):
+    """User-submitted training programs taken outside the platform"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='manual_trainings')
+    
+    name = models.CharField(max_length=200)
+    provider_name = models.CharField(max_length=200)
+    external_link = models.URLField(blank=True)
+    status = models.CharField(max_length=50, default='completed')
+    
+    date_completed = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        
+    def __str__(self):
+        return f"Manual Training: {self.user.full_name} -> {self.name}"
+
+
+class ManualCertificate(models.Model):
+    """User-submitted certificates obtained outside the platform"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='manual_certificates')
+    
+    program_name = models.CharField(max_length=200)
+    certificate_file = CloudinaryField('certificate', folder='manual_certificates/')
+    
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-uploaded_at']
+        
+    def __str__(self):
+        return f"Manual Cert: {self.user.full_name} -> {self.program_name}"
+
+
+class ManualInterview(models.Model):
+    """User-submitted interviews scheduled outside the platform"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='manual_interviews')
+    
+    company_name = models.CharField(max_length=200)
+    job_title = models.CharField(max_length=200)
+    
+    scheduled_date = models.DateField()
+    scheduled_time = models.TimeField()
+    meeting_link = models.URLField(blank=True)
+    location = models.CharField(max_length=200, blank=True)
+    status = models.CharField(max_length=50, default='scheduled')
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['scheduled_date', 'scheduled_time']
+        
+    def __str__(self):
+        return f"Manual Interview: {self.user.full_name} with {self.company_name}"

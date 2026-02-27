@@ -15,6 +15,7 @@ from users.models import Resume
 from django.db import transaction
 import uuid
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,21 @@ class ResumeGenerationPipelineView(APIView):
             "resume_id": "..."
         }
         """
+        # Extract data from FormData
+        try:
+            # When sent via FormData, the JSON payload is usually in 'data'
+            if 'data' in request.data:
+                payload = json.loads(request.data['data'])
+            else:
+                payload = request.data
+        except Exception as e:
+            return Response({
+                'error': 'Invalid JSON data in FormData',
+                'details': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         # Validate input
-        serializer = ResumeGenerationRequestSerializer(data=request.data)
+        serializer = ResumeGenerationRequestSerializer(data=payload)
         if not serializer.is_valid():
             return Response({
                 'error': 'Invalid request data',
@@ -58,6 +72,26 @@ class ResumeGenerationPipelineView(APIView):
         
         validated_data = serializer.validated_data
         user = request.user
+        
+        # Handle optional credential file upload
+        credential_file = request.FILES.get('file')
+        credential_url = None
+        if credential_file:
+            try:
+                cloudinary_service = CloudinaryUploadService()
+                doc_filename = f"credential_{user.id}_{uuid.uuid4().hex[:8]}"
+                # Using the existing upload_resume_pdf logic for general documents as well
+                doc_upload_result = cloudinary_service.upload_resume_pdf(credential_file.read(), doc_filename)
+                credential_url = doc_upload_result.get('secure_url')
+                logger.info(f"Credential file uploaded: {doc_upload_result.get('public_id')}")
+            except Exception as e:
+                logger.warning(f"Failed to upload credential file: {e}")
+        
+        # Inject credential URL if obtained
+        if credential_url and 'credentials' in validated_data:
+            validated_data['credentials']['credential_url'] = credential_url
+        elif credential_url:
+            validated_data['credentials'] = {'credential_url': credential_url}
         
         try:
             # Step 1: Generate PDF from resume data

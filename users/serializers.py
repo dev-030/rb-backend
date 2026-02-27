@@ -4,7 +4,8 @@ from rest_framework import serializers
 from users.models import (
     Job, JobApplication, Interview, TrainingProgram, Enrollment, Certificate,
     CareerQuiz, Resume, WorkExperience, Education, Skill, Document,
-    SavedJob, ContactMessage
+    SavedJob, ContactMessage,
+    ManualJobApplication, ManualTraining, ManualCertificate, ManualInterview
 )
 from django.contrib.auth import get_user_model
 
@@ -315,6 +316,11 @@ class PersonalInfoInputSerializer(serializers.Serializer):
     """Personal information for resume generation"""
     fullName = serializers.CharField(required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
+    address = serializers.CharField(required=False, allow_blank=True)
+    city = serializers.CharField(required=False, allow_blank=True)
+    state = serializers.CharField(required=False, allow_blank=True)
+    zipCode = serializers.CharField(required=False, allow_blank=True)
     location = serializers.CharField(required=False, allow_blank=True)
     dateOfBirth = serializers.DateField(required=False, allow_null=True)
     profilePicture = serializers.CharField(required=False, allow_blank=True)  # base64
@@ -339,12 +345,23 @@ class WorkExperienceGenerationSerializer(serializers.Serializer):
 class EducationInputSerializer(serializers.Serializer):
     """Education for resume generation"""
     institutionName = serializers.CharField(required=False, allow_blank=True)
+    location = serializers.CharField(required=False, allow_blank=True)
     degree = serializers.CharField(required=False, allow_blank=True)
     fieldOfStudy = serializers.CharField(required=False, allow_blank=True)
     grade = serializers.CharField(required=False, allow_blank=True)
     startYear = serializers.CharField(required=False, allow_blank=True)
     endYear = serializers.CharField(required=False, allow_blank=True)
     current = serializers.BooleanField(default=False)
+
+class CredentialsInputSerializer(serializers.Serializer):
+    """Credentials and licenses for resume generation"""
+    selectedLicenses = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=True
+    )
+    otherLicense = serializers.CharField(required=False, allow_blank=True)
+    credential_url = serializers.URLField(required=False, allow_blank=True)
 
 
 class ResumeGenerationRequestSerializer(serializers.Serializer):
@@ -357,4 +374,134 @@ class ResumeGenerationRequestSerializer(serializers.Serializer):
         allow_empty=True
     )
     education = EducationInputSerializer(many=True, required=False)
+    credentials = CredentialsInputSerializer(required=False)
     quiz_data = QuizDataSerializer(required=False)  # Optional quiz data for AI
+
+
+# ==========================================
+# MANUAL ENTRIES SERIALIZERS
+# ==========================================
+
+class ManualJobApplicationSerializer(serializers.ModelSerializer):
+    """Serializer for manual applications, polyfilled to match JobApplicationSerializer shape"""
+    is_manual = serializers.BooleanField(default=True, read_only=True)
+    job_title = serializers.CharField(read_only=True)
+    company_name = serializers.CharField(read_only=True)
+    job = serializers.SerializerMethodField()
+    interview_details = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ManualJobApplication
+        fields = [
+            'id', 'job', 'job_title', 'company_name', 'user', 'location',
+            'status', 'applied_at', 'is_manual', 'interview_details'
+        ]
+        read_only_fields = ['id', 'user', 'applied_at']
+        
+    def get_job(self, obj):
+        return None
+        
+    def get_interview_details(self, obj):
+        return None
+
+
+class ManualTrainingSerializer(serializers.ModelSerializer):
+    """Serializer for manual trainings, polyfilled to match EnrollmentSerializer shape"""
+    is_manual = serializers.BooleanField(default=True, read_only=True)
+    program_name = serializers.CharField(source='name', read_only=True)
+    # The external_link and provider_name match directly to fields from the model
+    progress_percentage = serializers.SerializerMethodField()
+    start_date = serializers.SerializerMethodField()
+    completion_date = serializers.DateField(source='date_completed', read_only=True)
+    certificate_url = serializers.SerializerMethodField()
+    certificate_status = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ManualTraining
+        fields = [
+            'id', 'program_name', 'provider_name', 'external_link', 'user',
+            'status', 'progress_percentage', 'start_date', 'completion_date',
+            'certificate_url', 'certificate_status', 'created_at', 'is_manual'
+        ]
+        read_only_fields = ['id', 'user', 'created_at']
+        
+    def get_progress_percentage(self, obj):
+        return 100 if obj.status == 'completed' else 0
+        
+    def get_start_date(self, obj):
+        # We don't collect start date for manuals, so we map created_at or None
+        return obj.created_at.date() if obj.created_at else None
+        
+    def get_certificate_url(self, obj):
+        return None
+        
+    def get_certificate_status(self, obj):
+        return None
+
+
+class ManualCertificateSerializer(serializers.ModelSerializer):
+    """Serializer for manual certificates, polyfilled to match CertificateSerializer shape"""
+    is_manual = serializers.BooleanField(default=True, read_only=True)
+    # program_name is built in to the model
+    certificate_file = serializers.SerializerMethodField()
+    verification_status = serializers.SerializerMethodField()
+    verified_at = serializers.SerializerMethodField()
+    verified_by = serializers.SerializerMethodField()
+    rejection_reason = serializers.SerializerMethodField()
+    enrollment = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ManualCertificate
+        fields = [
+            'id', 'enrollment', 'program_name', 'certificate_file',
+            'verification_status', 'uploaded_at', 'verified_at',
+            'verified_by', 'rejection_reason', 'is_manual'
+        ]
+        read_only_fields = ['id', 'uploaded_at']
+        
+    def get_certificate_file(self, obj):
+        if obj.certificate_file:
+            return obj.certificate_file.url
+        return None
+        
+    def get_enrollment(self, obj):
+        return None
+        
+    def get_verification_status(self, obj):
+        return "verified"
+        
+    def get_verified_at(self, obj):
+        return obj.uploaded_at
+        
+    def get_verified_by(self, obj):
+        return None
+        
+    def get_rejection_reason(self, obj):
+        return ""
+
+
+class ManualInterviewSerializer(serializers.ModelSerializer):
+    """Serializer for manual interviews, polyfilled to match InterviewSerializer shape"""
+    is_manual = serializers.BooleanField(default=True, read_only=True)
+    application = serializers.SerializerMethodField()
+    notes = serializers.SerializerMethodField()
+    duration_minutes = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ManualInterview
+        fields = [
+            'id', 'application', 'job_title', 'company_name',
+            'scheduled_date', 'scheduled_time', 'duration_minutes',
+            'meeting_link', 'location', 'status', 'notes', 'is_manual'
+        ]
+        read_only_fields = ['id', 'user', 'created_at']
+        
+    def get_application(self, obj):
+        return None
+        
+    def get_notes(self, obj):
+        return "Manual entry"
+        
+    def get_duration_minutes(self, obj):
+        return 30
+
