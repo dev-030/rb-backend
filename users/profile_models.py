@@ -242,7 +242,7 @@ class ManualCertificate(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='manual_certificates')
     
     program_name = models.CharField(max_length=200)
-    certificate_file = CloudinaryField('certificate', folder='manual_certificates/')
+    certificate_url = models.URLField(blank=True)  # Link to certificate
     
     uploaded_at = models.DateTimeField(auto_now_add=True)
     
@@ -259,10 +259,11 @@ class ManualInterview(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='manual_interviews')
     
     company_name = models.CharField(max_length=200)
-    job_title = models.CharField(max_length=200)
+    job_title = models.CharField(max_length=200, blank=True, default='')
+    interview_details = models.TextField(blank=True, default='')
     
-    scheduled_date = models.DateField()
-    scheduled_time = models.TimeField()
+    scheduled_date = models.DateField(null=True, blank=True)
+    scheduled_time = models.TimeField(null=True, blank=True)
     meeting_link = models.URLField(blank=True)
     location = models.CharField(max_length=200, blank=True)
     status = models.CharField(max_length=50, default='scheduled')
@@ -270,7 +271,7 @@ class ManualInterview(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
-        ordering = ['scheduled_date', 'scheduled_time']
+        ordering = ['-created_at']
         
     def __str__(self):
         return f"Manual Interview: {self.user.full_name} with {self.company_name}"

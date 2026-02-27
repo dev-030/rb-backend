@@ -408,11 +408,11 @@ class ManualJobApplicationSerializer(serializers.ModelSerializer):
 class ManualTrainingSerializer(serializers.ModelSerializer):
     """Serializer for manual trainings, polyfilled to match EnrollmentSerializer shape"""
     is_manual = serializers.BooleanField(default=True, read_only=True)
-    program_name = serializers.CharField(source='name', read_only=True)
-    # The external_link and provider_name match directly to fields from the model
+    # program_name is a virtual field that maps to model's `name`
+    program_name = serializers.CharField(source='name')  # writable for POST
+    completion_date = serializers.DateField(source='date_completed', required=False, allow_null=True)
     progress_percentage = serializers.SerializerMethodField()
     start_date = serializers.SerializerMethodField()
-    completion_date = serializers.DateField(source='date_completed', read_only=True)
     certificate_url = serializers.SerializerMethodField()
     certificate_status = serializers.SerializerMethodField()
     
@@ -429,7 +429,6 @@ class ManualTrainingSerializer(serializers.ModelSerializer):
         return 100 if obj.status == 'completed' else 0
         
     def get_start_date(self, obj):
-        # We don't collect start date for manuals, so we map created_at or None
         return obj.created_at.date() if obj.created_at else None
         
     def get_certificate_url(self, obj):
@@ -442,7 +441,7 @@ class ManualTrainingSerializer(serializers.ModelSerializer):
 class ManualCertificateSerializer(serializers.ModelSerializer):
     """Serializer for manual certificates, polyfilled to match CertificateSerializer shape"""
     is_manual = serializers.BooleanField(default=True, read_only=True)
-    # program_name is built in to the model
+    # certificate_file is returned to match the platform shape (maps to certificate_url)
     certificate_file = serializers.SerializerMethodField()
     verification_status = serializers.SerializerMethodField()
     verified_at = serializers.SerializerMethodField()
@@ -453,16 +452,15 @@ class ManualCertificateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ManualCertificate
         fields = [
-            'id', 'enrollment', 'program_name', 'certificate_file',
+            'id', 'enrollment', 'program_name', 'certificate_file', 'certificate_url',
             'verification_status', 'uploaded_at', 'verified_at',
             'verified_by', 'rejection_reason', 'is_manual'
         ]
         read_only_fields = ['id', 'uploaded_at']
         
     def get_certificate_file(self, obj):
-        if obj.certificate_file:
-            return obj.certificate_file.url
-        return None
+        # Return the URL stored in certificate_url field
+        return obj.certificate_url or None
         
     def get_enrollment(self, obj):
         return None
@@ -490,17 +488,17 @@ class ManualInterviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = ManualInterview
         fields = [
-            'id', 'application', 'job_title', 'company_name',
+            'id', 'application', 'job_title', 'company_name', 'interview_details',
             'scheduled_date', 'scheduled_time', 'duration_minutes',
-            'meeting_link', 'location', 'status', 'notes', 'is_manual'
+            'meeting_link', 'location', 'status', 'notes', 'is_manual', 'created_at'
         ]
-        read_only_fields = ['id', 'user', 'created_at']
+        read_only_fields = ['id', 'created_at']
         
     def get_application(self, obj):
         return None
         
     def get_notes(self, obj):
-        return "Manual entry"
+        return obj.interview_details or "Manual entry"
         
     def get_duration_minutes(self, obj):
         return 30
