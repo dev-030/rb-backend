@@ -11,6 +11,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from io import BytesIO
 import base64
+import re
 
 
 
@@ -102,6 +103,31 @@ class ResumePDFGenerator:
             spaceAfter=4
         ))
     
+    def _extract_year(self, date_str):
+        """Extract 4-digit year from any date string, e.g. '2024-03-26' → '2024'"""
+        if not date_str:
+            return ''
+        match = re.search(r'\b(\d{4})\b', str(date_str))
+        return match.group(1) if match else str(date_str)
+
+    def _format_date(self, date_str):
+        """
+        Format a date string for display on the resume.
+        - ISO dates like '2024-03-26' → 'Mar 2024'
+        - Human-readable strings like 'March 2024' are returned as-is
+        - Empty/None → ''
+        """
+        if not date_str:
+            return ''
+        try:
+            from datetime import datetime
+            # Try ISO format first
+            dt = datetime.strptime(str(date_str).strip(), '%Y-%m-%d')
+            return dt.strftime('%b %Y')  # e.g. 'Mar 2024'
+        except (ValueError, TypeError):
+            # Already human-readable, return as-is
+            return str(date_str)
+
     def generate(self, resume_data):
         """
         Generate PDF from resume data
@@ -167,29 +193,39 @@ class ResumePDFGenerator:
         if name:
             elements.append(Paragraph(name, self.styles['Name']))
         
-        # Contact info (email, location, DOB, phone)
+        # Contact info line 1: email | phone
         contact_parts = []
         if personal.get('email'):
             contact_parts.append(personal['email'])
         if personal.get('phone'):
             contact_parts.append(personal['phone'])
         
+        if contact_parts:
+            elements.append(Paragraph(' | '.join(contact_parts), self.styles['Contact']))
+        
+        # Address line: street address, city, state, zip
+        address_parts = []
+        if personal.get('address'):
+            address_parts.append(personal['address'])
+        
         location_parts = []
         if personal.get('city'):
             location_parts.append(personal['city'])
         if personal.get('state'):
             location_parts.append(personal['state'])
+        if personal.get('zipCode'):
+            location_parts.append(personal['zipCode'])
+        
         if location_parts:
-            contact_parts.append(', '.join(location_parts))
+            address_parts.append(', '.join(location_parts))
         elif personal.get('location'):
-            contact_parts.append(personal['location'])
+            address_parts.append(personal['location'])
+        
+        if address_parts:
+            elements.append(Paragraph(' | '.join(address_parts), self.styles['Contact']))
             
         if personal.get('dateOfBirth'):
-            contact_parts.append(f"DOB: {personal['dateOfBirth']}")
-        
-        if contact_parts:
-            contact_text = ' | '.join(contact_parts)
-            elements.append(Paragraph(contact_text, self.styles['Contact']))
+            elements.append(Paragraph(f"Date of Birth: {personal['dateOfBirth']}", self.styles['Contact']))
         
         # Divider line
         elements.append(Spacer(1, 0.1*inch))
@@ -200,6 +236,7 @@ class ResumePDFGenerator:
         elements.append(line)
         
         return elements
+
     
     def _build_work_section(self, work_experiences):
         """Build work experience section"""
@@ -223,13 +260,13 @@ class ResumePDFGenerator:
             
             company_text = ' - '.join(company_parts) if company_parts else ''
             
-            # Add dates
-            start_date = exp.get('startDate', '')
-            end_date = exp.get('endDate', '')
-            if not end_date and exp.get('current'):
+            # Format dates for display
+            start_date = self._format_date(exp.get('startDate', ''))
+            is_current = exp.get('current') in (True, 'true', 'True')
+            if is_current:
                 end_date = 'Present'
-            elif not end_date:
-                end_date = 'Present'
+            else:
+                end_date = self._format_date(exp.get('endDate', '')) or 'Present'
                 
             if start_date:
                 company_text += f" | {start_date} - {end_date}"
@@ -277,10 +314,13 @@ class ResumePDFGenerator:
             if edu.get('location'):
                 institution_parts.append(edu['location'])
             
-            start_year = edu.get('startYear', '')
-            end_year = edu.get('endYear', 'Present') if not edu.get('current') else 'Present'
+            # Extract 4-digit year from any date string (e.g. "2024-03-26" → "2024")
+            start_year = self._extract_year(edu.get('startYear', ''))
+            is_current = edu.get('current') in (True, 'true', 'True')
+            end_year = 'Present' if is_current else self._extract_year(edu.get('endYear', ''))
+            
             if start_year:
-                institution_parts.append(f"{start_year} - {end_year}")
+                institution_parts.append(f"{start_year} - {end_year or 'Present'}")
             
             if edu.get('grade'):
                 institution_parts.append(f"Grade: {edu['grade']}")
@@ -292,6 +332,7 @@ class ResumePDFGenerator:
             elements.append(Spacer(1, 0.1*inch))
         
         return elements
+
     
     def _build_skills_section(self, skills):
         """Build skills section"""

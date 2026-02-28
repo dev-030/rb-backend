@@ -356,12 +356,8 @@ Analyze the resume text provided along with the following user data and provide 
 - Job Priorities: {quiz_data.get('job_priorities', 'N/A')}
 - Location Preference: {quiz_data.get('location', 'N/A')}
 
-**Work History (User-Provided - Already Verified):**
+**Work History (User-Provided):**
 {work_history_summary if has_work_history else "No work history provided"}
-
-IMPORTANT: The work history above is user-provided and verified. When assessing resume completeness:
-- If work history is provided above, mark "work_experience" as "complete"
-- The resume text may supplement this information but should not override it
 
 **Resume Text:**
 {resume_preview}
@@ -402,7 +398,7 @@ COMPLETENESS EVALUATION CRITERIA:
    - Project work with dates
    - Volunteer experience
    
-4. **Skills** - Mark as "complete" if it lists AT LEAST THREE items that could be:
+4. **Skills** - Mark as "complete" if it lists AT LEAST ONE skill that could be:
    - Programming languages
    - Technical tools
    - Soft skills

@@ -331,8 +331,8 @@ class WorkExperienceGenerationSerializer(serializers.Serializer):
     jobTitle = serializers.CharField(required=False, allow_blank=True)
     company = serializers.CharField(required=False, allow_blank=True)
     location = serializers.CharField(required=False, allow_blank=True)
-    startDate = serializers.DateField(required=False, allow_null=True)
-    endDate = serializers.DateField(required=False, allow_null=True)
+    startDate = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    endDate = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     current = serializers.BooleanField(default=False)
     responsibilities = serializers.ListField(
         child=serializers.CharField(),
