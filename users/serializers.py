@@ -385,23 +385,44 @@ class ResumeGenerationRequestSerializer(serializers.Serializer):
 class ManualJobApplicationSerializer(serializers.ModelSerializer):
     """Serializer for manual applications, polyfilled to match JobApplicationSerializer shape"""
     is_manual = serializers.BooleanField(default=True, read_only=True)
-    job_title = serializers.CharField(read_only=True)
-    company_name = serializers.CharField(read_only=True)
+    # job_title and company_name exist on the model itself, so no need for read_only fields
     job = serializers.SerializerMethodField()
     interview_details = serializers.SerializerMethodField()
+    applicant = serializers.SerializerMethodField()
+    cover_letter = serializers.SerializerMethodField()
+    employer_notes = serializers.SerializerMethodField()
+    employer_name = serializers.CharField(source='company_name', read_only=True)
     
     class Meta:
         model = ManualJobApplication
         fields = [
-            'id', 'job', 'job_title', 'company_name', 'user', 'location',
-            'status', 'applied_at', 'is_manual', 'interview_details'
+            'id', 'job', 'job_title', 'company_name', 'employer_name', 'applicant', 'location',
+            'status', 'applied_at', 'is_manual', 'interview_details', 'interview_date', 'interview_time',
+            'cover_letter', 'employer_notes'
         ]
-        read_only_fields = ['id', 'user', 'applied_at']
+        read_only_fields = ['id', 'user']
         
     def get_job(self, obj):
-        return None
+        return obj.id  # Dummy ID to satisfy frontend parser
+        
+    def get_applicant(self, obj):
+        return str(obj.user.id) if obj.user else ""
+        
+    def get_cover_letter(self, obj):
+        return ""
+        
+    def get_employer_notes(self, obj):
+        return ""
         
     def get_interview_details(self, obj):
+        if obj.interview_date or obj.interview_time:
+            return {
+                'scheduled_date': str(obj.interview_date) if obj.interview_date else None,
+                'scheduled_time': str(obj.interview_time) if obj.interview_time else None,
+                'location': '',
+                'meeting_link': '',
+                'notes': ''
+            }
         return None
 
 
@@ -432,10 +453,10 @@ class ManualTrainingSerializer(serializers.ModelSerializer):
         return obj.created_at.date() if obj.created_at else None
         
     def get_certificate_url(self, obj):
-        return None
+        return obj.certificate_url if obj.certificate_url else None
         
     def get_certificate_status(self, obj):
-        return None
+        return obj.certificate_status if obj.certificate_status else None
 
 
 class ManualCertificateSerializer(serializers.ModelSerializer):
@@ -484,18 +505,50 @@ class ManualInterviewSerializer(serializers.ModelSerializer):
     application = serializers.SerializerMethodField()
     notes = serializers.SerializerMethodField()
     duration_minutes = serializers.SerializerMethodField()
-    
+    # Frontend expects these keys exactly
+    job = serializers.SerializerMethodField()
+    applicant = serializers.SerializerMethodField()
+    interview_details = serializers.SerializerMethodField()
+    employer_notes = serializers.SerializerMethodField()
+    applied_at = serializers.SerializerMethodField()
+    cover_letter = serializers.SerializerMethodField()
+
     class Meta:
         model = ManualInterview
         fields = [
-            'id', 'application', 'job_title', 'company_name', 'interview_details',
+            'id', 'application', 'job', 'job_title', 'company_name', 'applicant', 'status',
+            'cover_letter', 'applied_at', 'employer_notes', 'interview_details',
             'scheduled_date', 'scheduled_time', 'duration_minutes',
-            'meeting_link', 'location', 'status', 'notes', 'is_manual', 'created_at'
+            'meeting_link', 'location', 'notes', 'is_manual', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']
         
     def get_application(self, obj):
-        return None
+        return obj.id  # Dummy ID
+        
+    def get_job(self, obj):
+        return obj.id  # Dummy ID to satisfy frontend parser
+        
+    def get_applicant(self, obj):
+        return str(obj.user.id) if obj.user else ""
+        
+    def get_cover_letter(self, obj):
+        return ""
+        
+    def get_applied_at(self, obj):
+        return obj.created_at.isoformat() if obj.created_at else None
+        
+    def get_employer_notes(self, obj):
+        return ""
+        
+    def get_interview_details(self, obj):
+        return {
+            "scheduled_date": obj.scheduled_date,
+            "scheduled_time": obj.scheduled_time.strftime("%H:%M") if obj.scheduled_time else None,
+            "location": obj.location,
+            "meeting_link": obj.meeting_link,
+            "notes": obj.interview_details
+        }
         
     def get_notes(self, obj):
         return obj.interview_details or "Manual entry"

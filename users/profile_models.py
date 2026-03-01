@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from cloudinary.models import CloudinaryField
 import uuid
+from django.utils import timezone
 
 
 User = get_user_model()
@@ -207,7 +208,10 @@ class ManualJobApplication(models.Model):
     location = models.CharField(max_length=200, blank=True)
     status = models.CharField(max_length=50, default='Applied')
     
-    applied_at = models.DateTimeField(auto_now_add=True)
+    interview_date = models.DateField(null=True, blank=True)
+    interview_time = models.TimeField(null=True, blank=True)
+    
+    applied_at = models.DateTimeField(default=timezone.now)
     
     class Meta:
         ordering = ['-applied_at']
@@ -225,6 +229,9 @@ class ManualTraining(models.Model):
     provider_name = models.CharField(max_length=200)
     external_link = models.URLField(blank=True)
     status = models.CharField(max_length=50, default='completed')
+    
+    certificate_url = models.URLField(blank=True, default='')
+    certificate_status = models.CharField(max_length=50, default='', blank=True)
     
     date_completed = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

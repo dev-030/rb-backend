@@ -222,25 +222,78 @@ class JobApplicationDetailView(generics.RetrieveAPIView):
 
 class InterviewAndRejectedApplicationsView(generics.ListAPIView):
     """List user's applications that are either interview_scheduled or rejected"""
-    serializer_class = JobApplicationSerializer
     permission_classes = [IsAuthenticated, IsJobSeeker]
     
-    def get_queryset(self):
-        return JobApplication.objects.filter(
-            applicant=self.request.user,
-            status__in=['interview_scheduled', 'rejected']
-        ).select_related('job', 'job__employer').order_by('-applied_at')
+    def list(self, request, *args, **kwargs):
+        combined = []
+        if request.user.is_authenticated:
+            # 1. Platform Applications
+            platform_qs = JobApplication.objects.filter(
+                applicant=request.user,
+                status__in=['interview_scheduled', 'rejected']
+            ).select_related('job', 'job__employer')
+            
+            # 2. Manual Applications
+            manual_qs = ManualJobApplication.objects.filter(
+                user=request.user,
+                status__icontains='reject'
+            )
+
+            # 3. Manual Interviews
+            manual_interviews_qs = ManualInterview.objects.filter(
+                user=request.user
+            )
+            
+            platform_data = JobApplicationSerializer(platform_qs, many=True, context={'request': request}).data
+            manual_data = ManualJobApplicationSerializer(manual_qs, many=True, context={'request': request}).data
+            manual_interviews_data = ManualInterviewSerializer(manual_interviews_qs, many=True, context={'request': request}).data
+            
+            for item in manual_interviews_data:
+                if item.get('status') == 'scheduled':
+                    item['status'] = 'interview_scheduled'
+            
+            combined = platform_data + manual_data + manual_interviews_data
+        combined.sort(key=lambda x: x.get('applied_at', ''), reverse=True)
+        
+        return Response({
+            'count': len(combined),
+            'next': None,
+            'previous': None,
+            'results': combined
+        })
 
 
 class InterviewListView(generics.ListAPIView):
-    """List user's interviews"""
-    serializer_class = InterviewSerializer
+    """List user's interviews (both platform and manual)"""
     permission_classes = [IsAuthenticated, IsJobSeeker]
     
-    def get_queryset(self):
-        return Interview.objects.filter(
-            application__applicant=self.request.user
-        ).select_related('application', 'application__job', 'application__job__employer').order_by('scheduled_date', 'scheduled_time')
+    def list(self, request, *args, **kwargs):
+        # 1. Platform Interviews
+        platform_qs = Interview.objects.filter(
+            application__applicant=request.user
+        ).select_related('application', 'application__job', 'application__job__employer')
+        
+        # 2. Manual Interviews
+        manual_qs = ManualInterview.objects.filter(
+            user=request.user
+        )
+        
+        platform_data = InterviewSerializer(platform_qs, many=True, context={'request': request}).data
+        manual_data = ManualInterviewSerializer(manual_qs, many=True, context={'request': request}).data
+        
+        combined = platform_data + manual_data
+        # Sort by scheduled_date if possible, fallback to created_at
+        combined.sort(
+            key=lambda x: x.get('scheduled_date') or x.get('created_at') or '', 
+            reverse=True
+        )
+        
+        return Response({
+            'count': len(combined),
+            'next': None,
+            'previous': None,
+            'results': combined
+        })
 
 
 # ===== SAVED JOBS =====
@@ -395,47 +448,74 @@ class CertificateUploadView(APIView):
     permission_classes = [IsAuthenticated, IsJobSeeker]
     
     def post(self, request, enrollment_id):
+        # 1. Try standard Enrollment
         try:
             enrollment = Enrollment.objects.get(id=enrollment_id, user=request.user)
+            is_manual = False
         except Enrollment.DoesNotExist:
-            return Response({
-                'error': 'Enrollment not found'
-            }, status=status.HTTP_404_NOT_FOUND)
-        
-        # Check if already uploaded
-        if Certificate.objects.filter(enrollment=enrollment).exists():
-            return Response({
-                'error': 'Certificate already uploaded for this enrollment'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            # 2. Fallback to ManualTraining
+            try:
+                manual_training = ManualTraining.objects.get(id=enrollment_id, user=request.user)
+                is_manual = True
+            except ManualTraining.DoesNotExist:
+                return Response({
+                    'error': 'Training enrollment not found'
+                }, status=status.HTTP_404_NOT_FOUND)
         
         certificate_file = request.FILES.get('certificate_file')
         if not certificate_file:
             return Response({
                 'error': 'Certificate file is required'
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Create certificate
-        certificate = Certificate.objects.create(
-            enrollment=enrollment,
-            certificate_file=certificate_file,
-            verification_status='pending'
-        )
-        
-        # Send notifications
-        try:
-            notify_certificate_uploaded(request.user, enrollment.program)
-            # Notify trainer
-            if enrollment.program.provider and enrollment.program.provider.user:
-                notify_trainer_certificate_pending(
-                    enrollment.program.provider.user, 
-                    request.user, 
-                    enrollment.program
-                )
-        except Exception:
-            pass  # Don't fail upload if notification fails
-        
-        serializer = CertificateSerializer(certificate)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+            
+        if is_manual:
+            # Handle Manual Training (Upload as generic Document to get URL)
+            document = Document.objects.create(
+                user=request.user,
+                document_type='certificate',
+                filename=certificate_file.name,
+                file=certificate_file
+            )
+            # Link Cloudinary URL back to manual training
+            manual_training.certificate_url = document.file.url
+            manual_training.certificate_status = 'verified'
+            manual_training.save()
+            
+            # Also create a ManualCertificate so it appears in the external "My Certificates" screen
+            ManualCertificate.objects.create(
+                user=request.user,
+                program_name=manual_training.name,
+                certificate_url=document.file.url
+            )
+            return Response({'status': 'verified'}, status=status.HTTP_201_CREATED)
+            
+        else:
+            # Handle Standard Platform Enrollment
+            if Certificate.objects.filter(enrollment=enrollment).exists():
+                return Response({
+                    'error': 'Certificate already uploaded for this enrollment'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            certificate = Certificate.objects.create(
+                enrollment=enrollment,
+                certificate_file=certificate_file,
+                verification_status='pending'
+            )
+            
+            # Send notifications
+            try:
+                notify_certificate_uploaded(request.user, enrollment.program)
+                if enrollment.program.provider and enrollment.program.provider.user:
+                    notify_trainer_certificate_pending(
+                        enrollment.program.provider.user, 
+                        request.user, 
+                        enrollment.program
+                    )
+            except Exception:
+                pass  # Don't fail upload if notification fails
+            
+            serializer = CertificateSerializer(certificate)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class CertificateListView(generics.ListAPIView):
