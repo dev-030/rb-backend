@@ -24,6 +24,7 @@ urlpatterns = [
     path('apple/', AppleLoginView.as_view(), name='apple_login'),
     path('complete-profile/', CompleteProfileView.as_view(), name='complete_profile'),
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('profile/', ProfileView.as_view(), name='profile'),
     path('change-password/', ChangePasswordView.as_view(), name='change_password'),
