@@ -528,17 +528,84 @@ class CourtDateCSVUploadView(APIView):
 
 
 class AgencyCaseLoadListView(generics.ListAPIView):
-    """List all CSV-uploaded cases (Pending and Active)"""
+    """List all CSV-uploaded cases (Pending and Active). Also supports POST to add a single case."""
     permission_classes = [IsAuthenticated, IsVerifiedAgency]
     pagination_class = None
-    
+
     def get_queryset(self):
         from .models import AgencyCaseLoad
         return AgencyCaseLoad.objects.filter(agency=self.request.user.agency_profile)
-    
+
     def get_serializer_class(self):
         from .serializers import AgencyCaseLoadSerializer
         return AgencyCaseLoadSerializer
+
+    def post(self, request):
+        """Add a single individual case entry via JSON."""
+        from .models import AgencyCaseLoad
+        from .serializers import AgencyCaseLoadSerializer
+        from django.contrib.auth import get_user_model
+        from users.models import ReferredUser, CaseAssignment
+
+        User = get_user_model()
+        agency = request.user.agency_profile
+
+        email = request.data.get('email', '').strip()
+        case_id = request.data.get('case_id', '').strip()
+        court_name = request.data.get('court_name', '').strip()
+        court_date = request.data.get('court_date', None) or None
+        status_val = request.data.get('status', 'on_track').strip().lower().replace(' ', '_')
+
+        if not email or not case_id:
+            return Response({'error': 'Email and Case ID are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Prevent duplicates per agency
+        if AgencyCaseLoad.objects.filter(agency=agency, case_id=case_id).exists():
+            return Response({'error': 'A case with this Case ID already exists for your agency.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Try to link to an existing registered user
+        user = User.objects.filter(email=email).first()
+
+        case_load = AgencyCaseLoad.objects.create(
+            agency=agency,
+            case_id=case_id,
+            email=email,
+            court_name=court_name or 'Unknown Court',
+            court_date=court_date,
+            status=status_val,
+            is_registered=bool(user),
+            matched_user=user,
+        )
+
+        if user:
+            referred_user, _ = ReferredUser.objects.get_or_create(
+                user=user,
+                defaults={
+                    'phone_number': '',
+                    'court_name': court_name or 'Unknown Court',
+                    'case_id': case_id,
+                }
+            )
+            CaseAssignment.objects.update_or_create(
+                referred_user=referred_user,
+                agency=agency,
+                defaults={
+                    'case_id': case_id,
+                    'court_date': court_date,
+                    'compliance_status': status_val if status_val in ['on_track', 'delayed', 'non_compliant', 'completed'] else 'on_track',
+                }
+            )
+
+        AuditLog.objects.create(
+            admin_user=request.user,
+            action='case_assigned',
+            target_user=user,
+            details={'case_id': case_id, 'email': email, 'method': 'individual'},
+            ip_address=get_client_ip(request),
+        )
+
+        serializer = AgencyCaseLoadSerializer(case_load)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class CourtDateUsersListView(APIView):
