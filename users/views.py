@@ -395,10 +395,12 @@ class TrainingEnrollView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Create enrollment
+        financial_aid = request.data.get('financial_aid_requested', False)
         enrollment = Enrollment.objects.create(
             program=program,
             user=request.user,
-            status='enrolled'
+            status='enrolled',
+            financial_aid_requested=bool(financial_aid),
         )
         
         # Send notifications

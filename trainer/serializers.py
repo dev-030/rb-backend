@@ -41,6 +41,7 @@ class LearnerSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user', 'learner_name', 'learner_email', 'program',
             'program_name', 'status', 'progress_percentage',
+            'financial_aid_requested',
             'start_date', 'completion_date', 'certificate_id', 'certificate_url',
             'certificate_status', 'rejection_reason', 'resume_url'
         ]

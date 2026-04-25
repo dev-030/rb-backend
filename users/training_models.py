@@ -69,6 +69,10 @@ class Enrollment(models.Model):
     
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='enrolled')
     progress_percentage = models.IntegerField(default=0, help_text="0-100")
+    financial_aid_requested = models.BooleanField(
+        default=False,
+        help_text="Whether the student requested financial aid at enrollment"
+    )
     
     start_date = models.DateField(auto_now_add=True)
     completion_date = models.DateField(null=True, blank=True)
